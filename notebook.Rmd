@@ -126,8 +126,8 @@ test <- stan("SIR.stan",
 posterior <- stan(fit   = test,
                 data   = stan_d,
                 chains = 1,
-                warmup = 500,
-                iter   = 1000,
+                warmup = 1000,
+                iter   = 2000,
                 cores  = 3)
 
 posterior_df <- as.data.frame(posterior)
