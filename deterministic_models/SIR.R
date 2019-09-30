@@ -1,6 +1,7 @@
 
 
-incidence_data_SIR <- function(){
+incidence_data_SIR <- function(initInfected, effectiveContacts, recoveryTime){
+  
   library(deSolve)
   library(ggplot2)
   library(tidyr)
@@ -14,14 +15,14 @@ incidence_data_SIR <- function(){
   simtime <- seq(START, FINISH, by = STEP)
   
   # Create stocks vector, with initial values
-  stocks <- c(Susceptible = 999,
-              Infected    = 1,
+  stocks <- c(Susceptible = 990,
+              Infected    = initInfected,
               Recovered   = 0)
   
   
   # Create auxiliaries vector, with values
-  auxs    <- c(effectiveContacts = 0.35 * 4, # infectivity * contactRate
-               recoveryTime = 2)
+  auxs    <- c(effectiveContacts = effectiveContacts, 
+               recoveryTime = recoveryTime)
   
   model <- function (time, stocks, auxs) 
     with(as.list(c(stocks, auxs)), {

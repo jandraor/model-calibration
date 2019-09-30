@@ -8,10 +8,13 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
 
-```{r SIR_incidence_data}
+```{r SIR_incidence_data, fig.height = 3}
 source('./deterministic_models/SIR.R')
 
-incidence_data <- incidence_data_SIR()
+incidence_data <- incidence_data_SIR(initInfected = 10,
+                                     effectiveContacts = 0.25 * 4, 
+                                                    # infectivity * contact rate
+                                     recoveryTime = 2)
 
 library(ggplot2)
 
@@ -25,10 +28,11 @@ ggplot(incidence_data, aes(x = time, y = incidence)) +
 # Fitting one parameter using MCMC assuming normal distribution
 
 ```{r}
+source("./stan_utils.R")
 
-stan_text <- "
+stan_functions_base <- "
 functions {
-  real[] SEIR(real t,
+  real[] SIR(real t,
             real[] y, // stocks
             real[] params,
             real[] x_r,
@@ -39,15 +43,16 @@ functions {
       real probability;
       real contactsPerInfected;
       real effectiveContacts;
+      real recoveryTime;
       real IR; // Infection rate
       real RR; // Recovery rate
       
       population          = y[1] + y[2] + y[3];
       probability         = y[1] / population;
-      contactsPerInfected = y[2] * params[1]; // effective contacts per person
+      contactsPerInfected = y[2] * effectiveContacts;
       
       IR                  = contactsPerInfected * probability;
-      RR                  = y[2] / 2; // recovery time
+      RR                  = y[2] / recoveryTime;
       
       dydt[1] = -IR;
       dydt[2] = IR - RR;
@@ -56,7 +61,9 @@ functions {
       return dydt;
     }
 }
+"
 
+stan_data <- "
 data {
   int<lower = 1> n_obs; // Number of weeks sampled
   int<lower = 1> n_params; // Number of model parameters
@@ -65,53 +72,67 @@ data {
   real t0; // Initial time point (zero)
   real ts[n_obs]; // Time points that were sampled
 }
+"
 
+stan_transformed_data <- "
 transformed data {
   real x_r[0];
   int x_i[0];
 }
+"
 
+stan_parameters <- "
 parameters {
   real<lower = 0> params[n_params]; // Model parameters
   real<lower = 0> sigma;
-  real<lower = 0> S0; // Initial number of susceptible
 }
+"
 
+stan_transformed_parameters <- "
 transformed parameters{
   real y_hat[n_obs, n_difeq]; // Output from the ODE solver
   real y0[n_difeq]; // Initial conditions
   real incidence[n_obs];
     
-  y0[1] = S0;
-  y0[2] = 1;
+  y0[1] = 990;
+  y0[2] = 10;
   y0[3] = 0;
   
-  y_hat = integrate_ode_rk45(SEIR, y0, t0, ts, params, x_r, x_i);
+  y_hat = integrate_ode_rk45(SIR, y0, t0, ts, params, x_r, x_i);
   
   incidence[1] =  y_hat[1, 2] + y_hat[1, 3];
   
   for (i in 1:n_obs-1) {
-    incidence[i + 1] = y_hat[i + 1, 2] + y_hat[i + 1, 3] - y_hat[i, 2] - y_hat[i, 3]; 
+    incidence[i + 1] = y_hat[i + 1, 2] + y_hat[i + 1, 3] - y_hat[i, 2] - y_hat[i, 3] + 0.0000001; 
   }
   
 }
+"
 
+stan_model <- "
 model {
-  params[1] ~ uniform(0, 500); 
-  S0 ~ uniform(0, 20000);
+  params[1] ~ uniform(0, 500);
   sigma ~ cauchy( 0 , 2 );
   y ~ normal(incidence, sigma); 
 }
 "
 
-file_connection <- file("SIR.stan")
-writeLines(stan_text, file_connection)
-close(file_connection)
+# For one parameter
+stan_function_one_parameter <- stan_functions_base %>% 
+  stringr::str_replace("real effectiveContacts;\n", "") %>% 
+  stringr::str_replace("effectiveContacts", "params[1]") %>% 
+  stringr::str_replace("/ recoveryTime", "/ 2")
+
+stan_text <- paste0(stan_function_one_parameter, stan_data, 
+                    stan_transformed_data, stan_parameters, 
+                    stan_transformed_parameters, stan_model)
+
+create_stan_file(stan_text, "SIR.stan")
 
 library(rstan)
 
 stan_d = list(n_obs    = length(incidence_data$incidence),
-              n_params = 1,
+              n_params = 1, 
               n_difeq  = 3, # number of differential equations
               y        = incidence_data$incidence,
               t0       = 0,
@@ -120,33 +141,190 @@ stan_d = list(n_obs    = length(incidence_data$incidence),
 # Test / debug the model:
 test <- stan("SIR.stan",
             data = stan_d,
-            chains = 1, iter = 10)
+            chains = 1, 
+            iter = 10,
+            verbose = FALSE,
+            refresh = 0)
 
 # Fit and sample from the posterior
-posterior <- stan(fit   = test,
+stan_fit <- stan(fit   = test,
                 data   = stan_d,
-                chains = 1,
+                chains = 3,
                 warmup = 1000,
-                iter   = 2000,
+                iter   = 4000,
                 cores  = 3)
 
-posterior_df <- as.data.frame(posterior)
-colnames(posterior_df) <- make.names(colnames(posterior_df))
-g1 <- ggplot(posterior_df, aes(x = params.1.)) + 
-  geom_density() +
-  geom_vline(aes(xintercept=mean(params.1.)),
-            color="blue", linetype="dashed", size=1)
+#Effective constants posterior
+posterior_df <- as.data.frame(stan_fit) %>% 
+  rename(effective_contacts = 'params[1]')
+
+
+
+library(rethinking)
+library(magrittr)
+
+credible_interval <- HPDI(posterior_df$effective_contacts, prob = 0.95)
+mean_param        <- mean(posterior_df$effective_contacts)
+median_param      <- median(posterior_df$effective_contacts)
+
+hist.y <- density(posterior_df$effective_contacts) %$% 
+  data.frame(x = x, y = y) %>% 
+  mutate(area = x >= credible_interval[1] & x <= credible_interval[2])
+
+g1 <- ggplot(hist.y, aes(x = x)) + 
+  geom_line(aes(y = y)) +
+  geom_text(aes(x = mean_param + 0.008, y = 125), 
+            label = paste0("mean   = ", round(mean_param, 4)),
+            colour = "#1261A0") +
+  geom_text(aes(x = mean_param + 0.008, y = 115), 
+            label = paste0("median = ", round(median_param, 4)),
+            colour = "#1261A0") +
+  annotate("text", x = mean_param + 0.0085, y = 100, 
+           label = paste0("Credible interval 95% = [",
+                          round(credible_interval[1], 4),",",
+                          round(credible_interval[2], 4), "]"),
+           size = 2,
+           colour = "grey") +
+  geom_ribbon(aes(ymin = 0, ymax = y, fill = area)) +
+  scale_fill_manual(values = c(NA, "lightgrey")) + 
+  geom_vline(aes(xintercept = mean_param),
+            color = "#1261A0", linetype ="dashed", size = 1) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(x = "Effective contacts")
 
 print(g1)
 
-g2 <- ggplot(posterior_df, aes(x = S0)) + 
-  geom_density() +
-  geom_vline(aes(xintercept=mean(S0)),
-            color="blue", linetype="dashed", size=1)
+# g2 <- ggplot(posterior_df, aes(x = S0)) + 
+#   geom_density() +
+#   geom_vline(aes(xintercept=mean(S0)),
+#             color="blue", linetype="dashed", size=1)
 
-print(g2)
+# print(g2)
+
+# g3 <- ggplot(posterior_df, aes(x = params.2.)) + 
+#   geom_density() +
+#   geom_vline(aes(xintercept=mean(params.2.)),
+#             color="blue", linetype="dashed", size=1)
+
+# print(g3)
+
+# getmode <- function(v) {
+#    uniqv <- unique(v)
+#    uniqv[which.max(tabulate(match(v, uniqv)))]
+# }
 
 
 ```
 
+# Fitting one parameter using MCMC assuming poisson distribution
 
+```{r}
+# y is now discrete
+stan_data <- "
+data {
+  int<lower = 1> n_obs; // Number of weeks sampled
+  int<lower = 1> n_params; // Number of model parameters
+  int<lower = 1> n_difeq; // Number of differential equations in the system
+  int y[n_obs]; 
+  real t0; // Initial time point (zero)
+  real ts[n_obs]; // Time points that were sampled
+}
+"
+
+stan_parameters <- "
+parameters {
+  real<lower = 0> params[n_params]; // Model parameters
+}
+"
+
+stan_model <- "
+model {
+  params[1] ~ uniform(0, 500);
+  y ~ poisson(incidence); 
+}
+"
+
+stan_text <- paste0(stan_function_one_parameter, stan_data, 
+                    stan_transformed_data, stan_parameters, 
+                    stan_transformed_parameters, stan_model)
+
+
+create_stan_file(stan_text, "SIR.stan")
+
+stan_d = list(n_obs    = length(incidence_data$incidence),
+              n_params = 1, 
+              n_difeq  = 3, # number of differential equations
+              y        = incidence_data$incidence,
+              t0       = 0,
+              ts       = 1:30)
+
+# Test / debug the model:
+test <- stan("SIR.stan",
+            data = stan_d,
+            chains = 1, 
+            iter = 10,
+            verbose = FALSE,
+            refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit <- stan(fit   = test,
+                data   = stan_d,
+                chains = 3,
+                warmup = 1000,
+                iter   = 4000,
+                cores  = 3)
+
+#Effective constants posterior
+posterior_df <- as.data.frame(stan_fit) %>% 
+  rename(effective_contacts = 'params[1]')
+
+
+
+credible_interval <- HPDI(posterior_df$effective_contacts, prob = 0.95)
+mean_param        <- mean(posterior_df$effective_contacts)
+median_param      <- median(posterior_df$effective_contacts)
+
+hist.y <- density(posterior_df$effective_contacts) %$% 
+  data.frame(x = x, y = y) %>% 
+  mutate(area = x >= credible_interval[1] & x <= credible_interval[2])
+
+g1 <- ggplot(hist.y, aes(x = x)) + 
+  geom_line(aes(y = y)) +
+  geom_text(aes(x = mean_param + 0.025, y = 38), 
+            label = paste0("mean   = ", round(mean_param, 4)),
+            colour = "#1261A0") +
+  geom_text(aes(x = mean_param + 0.025, y = 36), 
+            label = paste0("median = ", round(median_param, 4)),
+            colour = "#1261A0") +
+  annotate("text", x = mean_param + 0.025, y = 33, 
+           label = paste0("Credible interval 95% = [",
+                          round(credible_interval[1], 4),",",
+                          round(credible_interval[2], 4), "]"),
+           size = 2,
+           colour = "grey") +
+  geom_ribbon(aes(ymin = 0, ymax = y, fill = area)) +
+  scale_fill_manual(values = c(NA, "lightgrey")) + 
+  geom_vline(aes(xintercept = mean_param),
+            color = "#1261A0", linetype ="dashed", size = 1) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(x = "Effective contacts")
+
+print(g1)
+```
+
+
+# Fitting two parameters using MCMC assuming normal distribution
+
+# Fitting two parameters using MCMC assuming poisson distribution
+
+# Fitting three parameters using MCMC assuming normal distribution
+
+# Fitting three parameters using MCMC assuming poisson distribution
