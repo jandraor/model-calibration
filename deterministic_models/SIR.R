@@ -1,6 +1,7 @@
 
 
-incidence_data_SIR <- function(initInfected, effectiveContacts, recoveryTime){
+incidence_data_SIR <- function(initInfected, effectiveContacts, recoveryTime,
+                               initSusceptible = 990){
   
   library(deSolve)
   library(ggplot2)
@@ -15,7 +16,7 @@ incidence_data_SIR <- function(initInfected, effectiveContacts, recoveryTime){
   simtime <- seq(START, FINISH, by = STEP)
   
   # Create stocks vector, with initial values
-  stocks <- c(Susceptible = 990,
+  stocks <- c(Susceptible = initSusceptible,
               Infected    = initInfected,
               Recovered   = 0)
   

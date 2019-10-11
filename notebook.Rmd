@@ -27,7 +27,7 @@ ggplot(incidence_data, aes(x = time, y = incidence)) +
 
 # Fitting one parameter using MCMC assuming normal distribution
 
-```{r}
+```{r, cache = TRUE}
 source("./stan_utils.R")
 
 stan_functions_base <- "
@@ -63,7 +63,7 @@ functions {
 }
 "
 
-stan_data <- "
+stan_data_normal <- "
 data {
   int<lower = 1> n_obs; // Number of weeks sampled
   int<lower = 1> n_params; // Number of model parameters
@@ -81,7 +81,7 @@ transformed data {
 }
 "
 
-stan_parameters <- "
+stan_parameters_normal <- "
 parameters {
   real<lower = 0> params[n_params]; // Model parameters
   real<lower = 0> sigma;
@@ -123,8 +123,8 @@ stan_function_one_parameter <- stan_functions_base %>%
   stringr::str_replace("effectiveContacts", "params[1]") %>% 
   stringr::str_replace("/ recoveryTime", "/ 2")
 
-stan_text <- paste0(stan_function_one_parameter, stan_data, 
-                    stan_transformed_data, stan_parameters, 
+stan_text <- paste0(stan_function_one_parameter, stan_data_normal, 
+                    stan_transformed_data, stan_parameters_normal, 
                     stan_transformed_parameters, stan_model)
 
 create_stan_file(stan_text, "SIR.stan")
@@ -222,9 +222,9 @@ print(g1)
 
 # Fitting one parameter using MCMC assuming poisson distribution
 
-```{r}
+```{r, cache = TRUE}
 # y is now discrete
-stan_data <- "
+stan_data_poisson <- "
 data {
   int<lower = 1> n_obs; // Number of weeks sampled
   int<lower = 1> n_params; // Number of model parameters
@@ -235,7 +235,7 @@ data {
 }
 "
 
-stan_parameters <- "
+stan_parameters_poisson <- "
 parameters {
   real<lower = 0> params[n_params]; // Model parameters
 }
@@ -248,8 +248,8 @@ model {
 }
 "
 
-stan_text <- paste0(stan_function_one_parameter, stan_data, 
-                    stan_transformed_data, stan_parameters, 
+stan_text <- paste0(stan_function_one_parameter, stan_data_poisson, 
+                    stan_transformed_data, stan_parameters_poisson, 
                     stan_transformed_parameters, stan_model)
 
 
@@ -322,9 +322,350 @@ print(g1)
 
 
 # Fitting two parameters using MCMC assuming normal distribution
+```{r, cache = TRUE}
+
+# For two parameters
+stan_function_two_parameters <- stan_functions_base %>% 
+  stringr::str_replace("real effectiveContacts;\n", "") %>% 
+  stringr::str_replace("real recoveryTime;\n", "") %>% 
+  stringr::str_replace("effectiveContacts", "params[1]") %>% 
+  stringr::str_replace("recoveryTime", "params[2]")
+
+stan_model <- "
+model {
+  params[1] ~ uniform(0, 500);
+  params[2] ~ uniform(0, 20);
+  sigma ~ cauchy( 0 , 2 );
+  y ~ normal(incidence, sigma); 
+}
+"
+
+stan_text <- paste0(stan_function_two_parameters, stan_data_normal, 
+                    stan_transformed_data, stan_parameters_normal, 
+                    stan_transformed_parameters, stan_model)
+create_stan_file(stan_text, "SIR.stan")
+
+stan_d = list(n_obs    = length(incidence_data$incidence),
+              n_params = 2, 
+              n_difeq  = 3, # number of differential equations
+              y        = incidence_data$incidence,
+              t0       = 0,
+              ts       = 1:30)
+
+# Test / debug the model:
+test <- stan("SIR.stan",
+            data = stan_d,
+            chains = 1, 
+            iter = 10,
+            verbose = FALSE,
+            refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit <- stan(fit   = test,
+                data   = stan_d,
+                chains = 3,
+                warmup = 2000,
+                iter   = 8000,
+                cores  = 3)
+
+# Parameters posterior
+posterior_df <- as.data.frame(stan_fit) %>% 
+  rename(effective_contacts = 'params[1]',
+         recoveryTime = 'params[2]')
+
+params_df<- posterior_df %>% 
+  select(effective_contacts, recoveryTime)
+
+credible_intervals <- apply(params_df, 2, HPDI, prob = 0.95) %>% t() %>% 
+  as.data.frame() %>% 
+  rename(lower_interval = "|0.95", upper_interval = "0.95|") %>% 
+  mutate(param = rownames(.))
+
+means   <- apply(params_df, 2, mean)
+medians <- apply(params_df, 2, median)
+
+stats_df <- data.frame(stringsAsFactors = FALSE,
+                       param = names(means), 
+                       mean_value = means,
+                       median_value = medians,
+                       lower_interval = credible_intervals$lower_interval,
+                       upper_interval = credible_intervals$upper_interval) %>% 
+  mutate(mean_label     = paste0("mean   = ", round(mean_value, 3)),
+         median_label   = paste0("median = ", round(median_value, 3)),
+         interval_label = paste0("[ ", round(lower_interval, 3), ", ", 
+                                 round(upper_interval, 3), " ]"),
+         x_pos          = c(1.025, 2.15),
+         y_pos_mean     = c(38, 9),
+         y_pos_median   = c(35.5, 8.5),
+         y_pos_interval = c(31, 7.8))
+
+densities <- apply(params_df, 2, density) %>% lapply(function(densityObj){
+    data.frame(x = densityObj$x, y = densityObj$y)
+  }) %>% bind_rows(.id = "param") %>% 
+  inner_join(credible_intervals) %>% 
+  mutate(area = x >= lower_interval & x <= upper_interval)
+
+g3 <- ggplot(densities, aes(x = x, y = y)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = 0, ymax = y, fill = area)) +
+  scale_fill_manual(values = c(NA, "lightgrey")) +
+  geom_vline(aes(xintercept = mean_value), stats_df, color = "#1261A0", 
+             linetype ="dashed", size = 1) +
+  geom_text(aes(x = x_pos, y = y_pos_mean, label = mean_label),
+            stats_df, colour = "#1261A0") +
+  geom_text(aes(x = x_pos, y = y_pos_median, label = median_label),
+            stats_df, colour = "#1261A0") +
+  geom_text(aes(x = x_pos, y = y_pos_interval, label = interval_label),
+            stats_df, colour = "grey") +
+  facet_wrap(~ param, scales = "free") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+print(g3)
+```
 
 # Fitting two parameters using MCMC assuming poisson distribution
 
+```{r, cache = TRUE}
+source("./graphs.R")
+
+stan_model <- "
+model {
+  params[1] ~ uniform(0, 500);
+  params[2] ~ uniform(0, 20);
+  y ~ poisson(incidence); 
+}
+"
+stan_text <- paste0(stan_function_two_parameters, stan_data_poisson, 
+                    stan_transformed_data, stan_parameters_poisson, 
+                    stan_transformed_parameters, stan_model)
+
+create_stan_file(stan_text, "SIR.stan")
+
+# Test / debug the model:
+test <- stan("SIR.stan",
+            data = stan_d,
+            chains = 1, 
+            iter = 10,
+            verbose = FALSE,
+            refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit <- stan(fit   = test,
+                data   = stan_d,
+                chains = 3,
+                warmup = 2000,
+                iter   = 8000,
+                cores  = 3)
+
+
+
+```
+
+```{r}
+library(rethinking)
+# Parameters posterior
+posterior_df <- as.data.frame(stan_fit) %>% 
+  rename(effective_contacts = 'params[1]',
+         recoveryTime = 'params[2]')
+
+params_df<- posterior_df %>% 
+  select(effective_contacts, recoveryTime)
+
+credible_intervals <- apply(params_df, 2, HPDI, prob = 0.95) %>% t() %>% 
+  as.data.frame() %>% 
+  rename(lower_interval = "|0.95", upper_interval = "0.95|") %>% 
+  mutate(param = rownames(.))
+
+means   <- apply(params_df, 2, mean)
+medians <- apply(params_df, 2, median)
+
+stats_df <- data.frame(stringsAsFactors = FALSE,
+                       param = names(means), 
+                       mean_value = means,
+                       median_value = medians,
+                       lower_interval = credible_intervals$lower_interval,
+                       upper_interval = credible_intervals$upper_interval) %>% 
+  mutate(mean_label     = paste0("mean   = ", round(mean_value, 3)),
+         median_label   = paste0("median = ", round(median_value, 3)),
+         interval_label = paste0("[ ", round(lower_interval, 3), ", ", 
+                                 round(upper_interval, 3), " ]"),
+         x_pos          = c(1.06, 2.45),
+         y_pos_mean     = c(11, 2.25),
+         y_pos_median   = c(10.5, 2.15),
+         y_pos_interval = c(9.8, 1.95))
+
+densities <- apply(params_df, 2, density) %>% lapply(function(densityObj){
+    data.frame(x = densityObj$x, y = densityObj$y)
+  }) %>% bind_rows(.id = "param") %>% 
+  inner_join(credible_intervals) %>% 
+  mutate(area = x >= lower_interval & x <= upper_interval)
+
+g <- draw_multiple_densities(densities, stats_df)
+
+print(g)
+
+```
+
+
 # Fitting three parameters using MCMC assuming normal distribution
 
+```{r, cache = TRUE}
+source('./stan_utils.R')
+
+# stan parameters normal init value. Adds S0
+stan_pn_init_value <- "
+parameters {
+  real<lower = 0> params[n_params]; // Model parameters
+  real<lower = 0> sigma;
+  real<lower = 0> S0; // Initial number of susceptibles
+}
+"
+# S0 is now an unknown value
+stan_transformed_parameters <- "
+transformed parameters{
+  real y_hat[n_obs, n_difeq]; // Output from the ODE solver
+  real y0[n_difeq]; // Initial conditions
+  real incidence[n_obs];
+    
+  y0[1] = S0;
+  y0[2] = 10;
+  y0[3] = 0;
+  
+  y_hat = integrate_ode_rk45(SIR, y0, t0, ts, params, x_r, x_i);
+  
+  incidence[1] =  y_hat[1, 2] + y_hat[1, 3];
+  
+  for (i in 1:n_obs-1) {
+    incidence[i + 1] = y_hat[i + 1, 2] + y_hat[i + 1, 3] - y_hat[i, 2] - y_hat[i, 3] + 0.00001; 
+  }
+  
+}
+"
+
+sus_priors <- c("S0 ~ normal(990, 1);",
+                "S0 ~ normal(791, 10);",
+                "S0 ~ normal(791, 250);")
+
+stan_fits <- vector(mode = "list", length = length(sus_priors))
+
+for(i in seq_len(length(sus_priors))) {
+  
+  susceptible_prior <- sus_priors[i]
+  
+  stan_model <- generate_stan_model_three_params(susceptible_prior)
+  
+  stan_text <- paste0(stan_function_two_parameters, stan_data_normal, 
+                    stan_transformed_data, stan_pn_init_value, 
+                    stan_transformed_parameters, stan_model)
+  
+  create_stan_file(stan_text, "SIR.stan")
+  
+  stan_fit <- fit_stan_model(n_constants = 2, incidence_data$incidence,
+                             warm_up = 2000, iterations = 8000, 
+                             seed = 1000000)
+  stan_fits[i] <- stan_fit
+}
+```
+
+```{r}
+source('./graphs.R')
+graph_inputs <- generate_graph_inputs(stan_fits[[1]], 
+                                      3,
+                                      x_pos = c(1.020, 2.12, 993),
+                                      y_pos = c(35, 9, 0.35),
+                                      y_pos_median = c(33, 8.6, 0.335),
+                                      y_pos_interval = c(30, 8, 0.305))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal (990,1)")
+print(g)
+
+
+
+
+```
+```{r}
+graph_inputs <- generate_graph_inputs(stan_fits[[2]], 
+                                      3,
+                                      x_pos = c(0.84, 4.75, 830),
+                                      y_pos = c(20, 1.2, 0.035),
+                                      y_pos_median = c(19, 1.15, 0.0335),
+                                      y_pos_interval = c(17, 1.05, 0.0305))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal(791, 10)")
+print(g)
+```
+```{r}
+graph_inputs <- generate_graph_inputs(stan_fits[[3]], 
+                                      3,
+                                      x_pos = c(1.04, 3,1020),
+                                      y_pos = c(10, 1.2, 0.01),
+                                      y_pos_median = c(9.6, 1.15, 0.0095),
+                                      y_pos_interval = c(8.9, 1.08, 0.0087))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal (791,250)")
+print(g)
+```
+
 # Fitting three parameters using MCMC assuming poisson distribution
+
+```{r}
+source('./stan_utils.R')
+
+# stan parameters Poisson init value. Adds S0
+stan_pp_init_value <- "
+parameters {
+  real<lower = 0> params[n_params]; // Model parameters
+  real<lower = 0> S0; // Initial number of susceptibles
+}
+"
+
+sus_priors <- c("\n",
+                "S0 ~ normal(990, 1);",
+                "S0 ~ normal(791, 1);",
+                "S0 ~ normal(791, 10);",
+                "S0 ~ normal(791, 100);")
+
+sus_priors <- sus_priors[[1]]
+
+stan_fits <- vector(mode = "list", length = length(sus_priors))
+
+for(i in seq_len(length(sus_priors))) {
+  
+  susceptible_prior <- sus_priors[i]
+  
+  stan_model <- generate_stan_model_three_params(susceptible_prior,
+                                                 likelihood = "poisson")
+  
+  stan_text <- paste0(stan_function_two_parameters, stan_data_poisson, 
+                    stan_transformed_data, stan_pp_init_value, 
+                    stan_transformed_parameters, stan_model)
+  
+  create_stan_file(stan_text, "SIR.stan")
+  
+  stan_fit <- fit_stan_model(n_constants = 2, incidence_data$incidence,
+                             warm_up = 2000, 
+                             iterations = 8000, 
+                             seed = 1168103287)
+  stan_fits[i] <- stan_fit
+}
+```
+
