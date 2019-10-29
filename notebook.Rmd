@@ -4,164 +4,78 @@ output:
   pdf_document: default
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
 
-```{r SIR_incidence_data, fig.height = 3}
-source('./deterministic_models/SIR.R')
-
-incidence_data <- incidence_data_SIR(initInfected = 10,
-                                     effectiveContacts = 0.25 * 4, 
-                                                    # infectivity * contact rate
-                                     recoveryTime = 2)
-
+```{r libraries, echo = FALSE}
+library(readr)
+library(dplyr)
 library(ggplot2)
+library(rstan)
+library(purrr)
+library(rethinking)
+library(gridExtra)
+library(bayesplot)
+```
 
-ggplot(incidence_data, aes(x = time, y = incidence)) +
-  geom_line(colour = "lightgrey") +
-  geom_point() +
+# 1. SYNTHETIC DATA
+
+```{r SIR_incidence_data, fig.height = 2.5, cache = TRUE}
+source('./deterministic_models/SIR.R')
+source('./deterministic_models/SEIR.R')
+
+SIR_output          <- SIR(initInfected = 10, effectiveContacts = 1, 
+                           recoveryTime = 2)
+SIR_df              <- SIR_output $incidence_data %>% mutate(model = "SIR")
+synthetic_incidence <- SIR_output$incidence_data$incidence 
+
+SEIR_output          <- SEIR(initInfected = 10, effectiveContacts = 1, 
+                             latentPeriod = 1, recoveryTime = 2)
+SEIR_df              <- SEIR_output$incidence_data %>% mutate(model = "SEIR")
+synthetic_incidence2 <- SEIR_output$incidence_data$incidence
+
+incidence_df <- bind_rows(SIR_df, SEIR_df)
+
+ggplot(incidence_df, aes(x = time, y = incidence, group = model)) +
+  geom_line(aes(colour = model)) +
+  scale_colour_brewer(palette = "Greys") +
+  geom_point(aes(shape = model)) +
   theme_test()
 ```
 
+## 1.1 SIR
 
-# Fitting one parameter using MCMC assuming normal distribution
+### 1.1.1 Fitting one parameter (Effective contacts)
 
-```{r, cache = TRUE}
+\hfill\break
+
+```{r th_oneParam_SIR_normal, cache = TRUE}
 source("./stan_utils.R")
 
-stan_functions_base <- "
-functions {
-  real[] SIR(real t,
-            real[] y, // stocks
-            real[] params,
-            real[] x_r,
-            int[] x_i) {
-              
-      real dydt[3];
-      real population;
-      real probability;
-      real contactsPerInfected;
-      real effectiveContacts;
-      real recoveryTime;
-      real IR; // Infection rate
-      real RR; // Recovery rate
-      
-      population          = y[1] + y[2] + y[3];
-      probability         = y[1] / population;
-      contactsPerInfected = y[2] * effectiveContacts;
-      
-      IR                  = contactsPerInfected * probability;
-      RR                  = y[2] / recoveryTime;
-      
-      dydt[1] = -IR;
-      dydt[2] = IR - RR;
-      dydt[3] = RR;
-      
-      return dydt;
-    }
-}
-"
+func_params <- list(recovery_delay = 0.5)
+stan_fun    <- generate_stan_function("SIR", func_params)
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = 990, Infected = 10, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "normal",
+                                  n_params = 1)
 
-stan_data_normal <- "
-data {
-  int<lower = 1> n_obs; // Number of weeks sampled
-  int<lower = 1> n_params; // Number of model parameters
-  int<lower = 1> n_difeq; // Number of differential equations in the system
-  real y[n_obs]; 
-  real t0; // Initial time point (zero)
-  real ts[n_obs]; // Time points that were sampled
-}
-"
-
-stan_transformed_data <- "
-transformed data {
-  real x_r[0];
-  int x_i[0];
-}
-"
-
-stan_parameters_normal <- "
-parameters {
-  real<lower = 0> params[n_params]; // Model parameters
-  real<lower = 0> sigma;
-}
-"
-
-stan_transformed_parameters <- "
-transformed parameters{
-  real y_hat[n_obs, n_difeq]; // Output from the ODE solver
-  real y0[n_difeq]; // Initial conditions
-  real incidence[n_obs];
-    
-  y0[1] = 990;
-  y0[2] = 10;
-  y0[3] = 0;
-  
-  y_hat = integrate_ode_rk45(SIR, y0, t0, ts, params, x_r, x_i);
-  
-  incidence[1] =  y_hat[1, 2] + y_hat[1, 3];
-  
-  for (i in 1:n_obs-1) {
-    incidence[i + 1] = y_hat[i + 1, 2] + y_hat[i + 1, 3] - y_hat[i, 2] - y_hat[i, 3] + 0.0000001; 
-  }
-  
-}
-"
-
-stan_model <- "
-model {
-  params[1] ~ uniform(0, 500);
-  sigma ~ cauchy( 0 , 2 );
-  y ~ normal(incidence, sigma); 
-}
-"
-
-# For one parameter
-stan_function_one_parameter <- stan_functions_base %>% 
-  stringr::str_replace("real effectiveContacts;\n", "") %>% 
-  stringr::str_replace("effectiveContacts", "params[1]") %>% 
-  stringr::str_replace("/ recoveryTime", "/ 2")
-
-stan_text <- paste0(stan_function_one_parameter, stan_data_normal, 
-                    stan_transformed_data, stan_parameters_normal, 
-                    stan_transformed_parameters, stan_model)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
 
 create_stan_file(stan_text, "SIR.stan")
 
-library(rstan)
+stan_fit <- fit_stan_model(
+  stan_file = "SIR.stan", n_constants = 1, synthetic_incidence, warm_up = 2000, 
+  iterations = 4000, seed = 191165034, n_difeq = 3)
+```
 
-stan_d = list(n_obs    = length(incidence_data$incidence),
-              n_params = 1, 
-              n_difeq  = 3, # number of differential equations
-              y        = incidence_data$incidence,
-              t0       = 0,
-              ts       = 1:30)
-
-# Test / debug the model:
-test <- stan("SIR.stan",
-            data = stan_d,
-            chains = 1, 
-            iter = 10,
-            verbose = FALSE,
-            refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit <- stan(fit   = test,
-                data   = stan_d,
-                chains = 3,
-                warmup = 1000,
-                iter   = 4000,
-                cores  = 3)
-
-#Effective constants posterior
+```{r g_th_oneParam_SIR_normal, cache = TRUE}
 posterior_df <- as.data.frame(stan_fit) %>% 
   rename(effective_contacts = 'params[1]')
-
-
-
-library(rethinking)
-library(magrittr)
 
 credible_interval <- HPDI(posterior_df$effective_contacts, prob = 0.95)
 mean_param        <- mean(posterior_df$effective_contacts)
@@ -173,14 +87,14 @@ hist.y <- density(posterior_df$effective_contacts) %$%
 
 g1 <- ggplot(hist.y, aes(x = x)) + 
   geom_line(aes(y = y)) +
-  geom_text(aes(x = mean_param + 0.008, y = 125), 
+  geom_text(aes(x = mean_param + 0.0014, y = 700), 
             label = paste0("mean   = ", round(mean_param, 4)),
-            colour = "#1261A0") +
-  geom_text(aes(x = mean_param + 0.008, y = 115), 
+            colour = "#1261A0", size = 3) +
+  geom_text(aes(x = mean_param + 0.0014, y = 630), 
             label = paste0("median = ", round(median_param, 4)),
-            colour = "#1261A0") +
-  annotate("text", x = mean_param + 0.0085, y = 100, 
-           label = paste0("Credible interval 95% = [",
+            colour = "#1261A0", size = 3) +
+  annotate("text", x = mean_param + 0.0014, y = 550, 
+           label = paste0("[",
                           round(credible_interval[1], 4),",",
                           round(credible_interval[2], 4), "]"),
            size = 2,
@@ -194,35 +108,11 @@ g1 <- ggplot(hist.y, aes(x = x)) +
         axis.title.y = element_blank(),
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
-  labs(x = "Effective contacts")
-
-print(g1)
-
-# g2 <- ggplot(posterior_df, aes(x = S0)) + 
-#   geom_density() +
-#   geom_vline(aes(xintercept=mean(S0)),
-#             color="blue", linetype="dashed", size=1)
-
-# print(g2)
-
-# g3 <- ggplot(posterior_df, aes(x = params.2.)) + 
-#   geom_density() +
-#   geom_vline(aes(xintercept=mean(params.2.)),
-#             color="blue", linetype="dashed", size=1)
-
-# print(g3)
-
-# getmode <- function(v) {
-#    uniqv <- unique(v)
-#    uniqv[which.max(tabulate(match(v, uniqv)))]
-# }
-
-
+  labs(x = "Effective contacts", title = "Normal likelihood")
 ```
 
-# Fitting one parameter using MCMC assuming poisson distribution
-
-```{r, cache = TRUE}
+```{r th_oneParam_SIR_poisson, cache = TRUE}
+source("./stan_utils.R")
 # y is now discrete
 stan_data_poisson <- "
 data {
@@ -241,48 +131,28 @@ parameters {
 }
 "
 
-stan_model <- "
-model {
-  params[1] ~ uniform(0, 500);
-  y ~ poisson(incidence); 
-}
-"
+func_params   <- list(recovery_delay = 0.5)
+stan_function <- generate_stan_function("SIR", func_params)
+initStocks    <- list(Susceptible = 990, Infected = 10, Recovered = 0)
+stan_td       <- generate_transformed_data_block()
+stan_tp       <- generate_transformed_parameters("SIR", initStocks)
+stan_model    <- generate_stan_model(likelihood = "poisson",
+                                  n_params = 1)
 
-stan_text <- paste0(stan_function_one_parameter, stan_data_poisson, 
-                    stan_transformed_data, stan_parameters_poisson, 
-                    stan_transformed_parameters, stan_model)
+stan_text <- paste(stan_function, stan_data_poisson, stan_td, 
+                   stan_parameters_poisson, stan_tp, stan_model, sep = "\n")
 
+create_stan_file(stan_text, "SIR_1_par.stan")
 
-create_stan_file(stan_text, "SIR.stan")
+stan_fit <- fit_stan_model(
+  stan_file = "SIR_1_par.stan", n_constants = 1, synthetic_incidence, 
+  warm_up = 2000, iterations = 4000, seed = 466899087, n_difeq = 3)
+```
 
-stan_d = list(n_obs    = length(incidence_data$incidence),
-              n_params = 1, 
-              n_difeq  = 3, # number of differential equations
-              y        = incidence_data$incidence,
-              t0       = 0,
-              ts       = 1:30)
-
-# Test / debug the model:
-test <- stan("SIR.stan",
-            data = stan_d,
-            chains = 1, 
-            iter = 10,
-            verbose = FALSE,
-            refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit <- stan(fit   = test,
-                data   = stan_d,
-                chains = 3,
-                warmup = 1000,
-                iter   = 4000,
-                cores  = 3)
-
+```{r g_th_oneParam_SIR_poisson, cache = TRUE}
 #Effective constants posterior
 posterior_df <- as.data.frame(stan_fit) %>% 
   rename(effective_contacts = 'params[1]')
-
-
 
 credible_interval <- HPDI(posterior_df$effective_contacts, prob = 0.95)
 mean_param        <- mean(posterior_df$effective_contacts)
@@ -292,16 +162,16 @@ hist.y <- density(posterior_df$effective_contacts) %$%
   data.frame(x = x, y = y) %>% 
   mutate(area = x >= credible_interval[1] & x <= credible_interval[2])
 
-g1 <- ggplot(hist.y, aes(x = x)) + 
+g2 <- ggplot(hist.y, aes(x = x)) + 
   geom_line(aes(y = y)) +
-  geom_text(aes(x = mean_param + 0.025, y = 38), 
+  geom_text(aes(x = mean_param + 0.026, y = 35), 
             label = paste0("mean   = ", round(mean_param, 4)),
-            colour = "#1261A0") +
-  geom_text(aes(x = mean_param + 0.025, y = 36), 
+            colour = "#1261A0", size = 3) +
+  geom_text(aes(x = mean_param + 0.026, y = 32), 
             label = paste0("median = ", round(median_param, 4)),
-            colour = "#1261A0") +
-  annotate("text", x = mean_param + 0.025, y = 33, 
-           label = paste0("Credible interval 95% = [",
+            colour = "#1261A0", size = 3) +
+  annotate("text", x = mean_param + 0.026, y = 28, 
+           label = paste0("[",
                           round(credible_interval[1], 4),",",
                           round(credible_interval[2], 4), "]"),
            size = 2,
@@ -315,162 +185,148 @@ g1 <- ggplot(hist.y, aes(x = x)) +
         axis.title.y = element_blank(),
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
-  labs(x = "Effective contacts")
-
-print(g1)
+  labs(x = "Effective contacts", title = "Poisson likelihood")
 ```
 
 
-# Fitting two parameters using MCMC assuming normal distribution
-```{r, cache = TRUE}
+```{r g_th_oneParam_SIR, fig.height = 3}
+grid.arrange(g1, g2, nrow = 1)
+```
 
-# For two parameters
-stan_function_two_parameters <- stan_functions_base %>% 
-  stringr::str_replace("real effectiveContacts;\n", "") %>% 
-  stringr::str_replace("real recoveryTime;\n", "") %>% 
-  stringr::str_replace("effectiveContacts", "params[1]") %>% 
-  stringr::str_replace("recoveryTime", "params[2]")
+### 1.1.2 Fitting two parameters
 
-stan_model <- "
-model {
-  params[1] ~ uniform(0, 500);
-  params[2] ~ uniform(0, 20);
-  sigma ~ cauchy( 0 , 2 );
-  y ~ normal(incidence, sigma); 
-}
-"
+#### 1.1.2.1 Effective contacts & recovery delay
 
-stan_text <- paste0(stan_function_two_parameters, stan_data_normal, 
-                    stan_transformed_data, stan_parameters_normal, 
-                    stan_transformed_parameters, stan_model)
+##### 1.1.2.1.1 Normal likelihood
+
+```{r th_SIR_normal_two_params, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fun     <- generate_stan_function("SIR")
+stan_data    <- generate_data_block("normal")
+stan_td      <- generate_transformed_data_block()
+stan_params  <- generate_parameters_block("normal")
+initStocks   <- list(Susceptible = 990, Infected = 10, Recovered = 0)
+stan_tp      <- generate_transformed_parameters("SIR", initStocks)
+normal_model <- c("params[1] ~ uniform(0, 500)", "params[2] ~ uniform(0, 20)",
+                "sigma ~ cauchy( 0 , 2 )", "y ~ normal(incidence, sigma)")
+stan_model   <- generate_model_text(normal_model)
+
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,stan_tp, 
+                   stan_model, sep = "\n")
+
 create_stan_file(stan_text, "SIR.stan")
-
-stan_d = list(n_obs    = length(incidence_data$incidence),
-              n_params = 2, 
-              n_difeq  = 3, # number of differential equations
-              y        = incidence_data$incidence,
-              t0       = 0,
-              ts       = 1:30)
-
-# Test / debug the model:
-test <- stan("SIR.stan",
-            data = stan_d,
-            chains = 1, 
-            iter = 10,
-            verbose = FALSE,
-            refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit <- stan(fit   = test,
-                data   = stan_d,
-                chains = 3,
-                warmup = 2000,
-                iter   = 8000,
-                cores  = 3)
-
-# Parameters posterior
-posterior_df <- as.data.frame(stan_fit) %>% 
-  rename(effective_contacts = 'params[1]',
-         recoveryTime = 'params[2]')
-
-params_df<- posterior_df %>% 
-  select(effective_contacts, recoveryTime)
-
-credible_intervals <- apply(params_df, 2, HPDI, prob = 0.95) %>% t() %>% 
-  as.data.frame() %>% 
-  rename(lower_interval = "|0.95", upper_interval = "0.95|") %>% 
-  mutate(param = rownames(.))
-
-means   <- apply(params_df, 2, mean)
-medians <- apply(params_df, 2, median)
-
-stats_df <- data.frame(stringsAsFactors = FALSE,
-                       param = names(means), 
-                       mean_value = means,
-                       median_value = medians,
-                       lower_interval = credible_intervals$lower_interval,
-                       upper_interval = credible_intervals$upper_interval) %>% 
-  mutate(mean_label     = paste0("mean   = ", round(mean_value, 3)),
-         median_label   = paste0("median = ", round(median_value, 3)),
-         interval_label = paste0("[ ", round(lower_interval, 3), ", ", 
-                                 round(upper_interval, 3), " ]"),
-         x_pos          = c(1.025, 2.15),
-         y_pos_mean     = c(38, 9),
-         y_pos_median   = c(35.5, 8.5),
-         y_pos_interval = c(31, 7.8))
-
-densities <- apply(params_df, 2, density) %>% lapply(function(densityObj){
-    data.frame(x = densityObj$x, y = densityObj$y)
-  }) %>% bind_rows(.id = "param") %>% 
-  inner_join(credible_intervals) %>% 
-  mutate(area = x >= lower_interval & x <= upper_interval)
-
-g3 <- ggplot(densities, aes(x = x, y = y)) +
-  geom_line() +
-  geom_ribbon(aes(ymin = 0, ymax = y, fill = area)) +
-  scale_fill_manual(values = c(NA, "lightgrey")) +
-  geom_vline(aes(xintercept = mean_value), stats_df, color = "#1261A0", 
-             linetype ="dashed", size = 1) +
-  geom_text(aes(x = x_pos, y = y_pos_mean, label = mean_label),
-            stats_df, colour = "#1261A0") +
-  geom_text(aes(x = x_pos, y = y_pos_median, label = median_label),
-            stats_df, colour = "#1261A0") +
-  geom_text(aes(x = x_pos, y = y_pos_interval, label = interval_label),
-            stats_df, colour = "grey") +
-  facet_wrap(~ param, scales = "free") +
-  theme_classic() +
-  theme(legend.position = "none",
-        axis.title.y = element_blank(),
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank())
-
-print(g3)
 ```
 
-# Fitting two parameters using MCMC assuming poisson distribution
 
-```{r, cache = TRUE}
+###### 1.1.2.1.1.1 Right model (SIR fitting SIR incidence)
+
+\hfill\break
+
+```{r th_SIR_normal_two_params_right, cache = TRUE}
+sf_normal_right <- fit_stan_model(
+  n_constants = 2, synthetic_incidence, warm_up = 2000, iterations = 4000,
+  seed = 39843593, n_difeq = 3)
+```
+
+```{r p_th_SIR_normal_two_params_right, fig.width = 9, fig.height = 3}
+g <- mcmc_pairs(sf_normal_right, pars = c("params[1]", "params[2]", "sigma"))
+print(g)
+```
+\hfill\break
+
+```{r g_th_SIR_normal_two_params_right, cache = TRUE, fig.height = 4}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"),
+                    list(new = "recoveryProportion", old = "params[2]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit = sf_normal_right,
+  pars = c("effective_contacts", "recoveryTime"),
+  rename_pars = rename_pars,
+  x_pos          = c(1.004, 2.023),
+  y_pos          = c(200, 56),
+  y_pos_median   = c(185, 52),
+  y_pos_interval = c(165, 46))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+\newpage
+
+###### 1.1.2.1.1.2 Wrong model (SIR fitting SEIR incidence)
+
+```{r th_SIR_normal_two_params_wrong, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fit_normal_wrong <- fit_stan_model(
+  n_constants = 2, synthetic_incidence2, warm_up = 2000, iterations = 4000,
+  seed = 1407382414, n_difeq = 3)
+pairs(stan_fit_normal_wrong, pars = c("params[1]", "params[2]", "sigma"))
+```
+
+```{r g_th_SIR_normal_two_params_wrong, cache = TRUE}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"),
+                    list(new = "recoveryProportion", old = "params[2]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit = stan_fit_normal_wrong,
+  pars = c("effective_contacts", "recoveryTime"),
+  rename_pars = rename_pars,
+  x_pos = c(0.535, 4.6), 
+  y_pos = c(50, 2.6),
+  y_pos_median = c(48, 2.4), 
+  y_pos_interval = c(45, 2.2))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+##### 1.1.2.1.2 Poisson likelihood
+
+```{r th_SIR_poisson_two_params, cache = TRUE}
+source("./stan_utils.R")
+
+stan_fun    <- generate_stan_function("SIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 990, Infected = 10, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "poisson",
+                                  n_params = 2)
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,
+                    stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR_poisson.stan")
+```
+
+###### 1.1.2.1.2.1 Right model (SIR fitting SIR incidence)
+
+```{r th_SIR_poisson_two_params_right, cache = TRUE}
+source("./stan_utils.R")
+
+stan_fit_poisson_right <- fit_stan_model(
+  stan_file = 'SIR_poisson.stan', n_constants = 2, synthetic_incidence, 
+  warm_up = 2000, iterations = 4000, seed = 245391088, n_difeq = 3)
+
+pairs(stan_fit_poisson_right, pars = c("params[1]", "params[2]"))
+```
+
+```{r g_th_SIR_poisson_two_params_right, cache = TRUE}
 source("./graphs.R")
-
-stan_model <- "
-model {
-  params[1] ~ uniform(0, 500);
-  params[2] ~ uniform(0, 20);
-  y ~ poisson(incidence); 
-}
-"
-stan_text <- paste0(stan_function_two_parameters, stan_data_poisson, 
-                    stan_transformed_data, stan_parameters_poisson, 
-                    stan_transformed_parameters, stan_model)
-
-create_stan_file(stan_text, "SIR.stan")
-
-# Test / debug the model:
-test <- stan("SIR.stan",
-            data = stan_d,
-            chains = 1, 
-            iter = 10,
-            verbose = FALSE,
-            refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit <- stan(fit   = test,
-                data   = stan_d,
-                chains = 3,
-                warmup = 2000,
-                iter   = 8000,
-                cores  = 3)
-
-
-
-```
-
-```{r}
 library(rethinking)
 # Parameters posterior
-posterior_df <- as.data.frame(stan_fit) %>% 
+posterior_df <- as.data.frame(stan_fit_poisson_right) %>% 
   rename(effective_contacts = 'params[1]',
-         recoveryTime = 'params[2]')
+         recoveryProportion = 'params[2]') %>% 
+  mutate(recoveryTime = 1 / recoveryProportion)
 
 params_df<- posterior_df %>% 
   select(effective_contacts, recoveryTime)
@@ -493,10 +349,10 @@ stats_df <- data.frame(stringsAsFactors = FALSE,
          median_label   = paste0("median = ", round(median_value, 3)),
          interval_label = paste0("[ ", round(lower_interval, 3), ", ", 
                                  round(upper_interval, 3), " ]"),
-         x_pos          = c(1.06, 2.45),
+         x_pos          = c(1.09, 2.45),
          y_pos_mean     = c(11, 2.25),
-         y_pos_median   = c(10.5, 2.15),
-         y_pos_interval = c(9.8, 1.95))
+         y_pos_median   = c(10, 2.10),
+         y_pos_interval = c(8.6, 1.90))
 
 densities <- apply(params_df, 2, density) %>% lapply(function(densityObj){
     data.frame(x = densityObj$x, y = densityObj$y)
@@ -504,16 +360,314 @@ densities <- apply(params_df, 2, density) %>% lapply(function(densityObj){
   inner_join(credible_intervals) %>% 
   mutate(area = x >= lower_interval & x <= upper_interval)
 
-g <- draw_multiple_densities(densities, stats_df)
+g <- draw_multiple_densities(densities, stats_df, text_size = 4)
 
 print(g)
 
 ```
 
+\newpage
+###### 1.1.2.1.2.2 Wrong model (SIR fitting SEIR incidence)
 
-# Fitting three parameters using MCMC assuming normal distribution
+```{r th_SIR_poisson_two_params_wrong, cache = TRUE}
+source("./stan_utils.R")
 
-```{r, cache = TRUE}
+stan_fit_poisson_wrong <- fit_stan_model(
+  stan_file = 'SIR_poisson.stan', n_constants = 2, synthetic_incidence2, 
+  warm_up = 2000, iterations = 4000, seed = 1926466221, n_difeq = 3)
+
+pairs(stan_fit_poisson_wrong, pars = c("params[1]", "params[2]"))
+```
+
+```{r g_th_SIR_poisson_two_params_wrong, cache = TRUE}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"),
+                    list(new = "recoveryProportion", old = "params[2]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit = stan_fit_poisson_wrong,
+  pars = c("effective_contacts", "recoveryTime"),
+  rename_pars = rename_pars,
+  x_pos = c(0.56, 4.8), 
+  y_pos = c(20, 0.8),
+  y_pos_median = c(19, 0.75), 
+  y_pos_interval = c(18, 0.7))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+#### 1.1.2.2 Effective contacts & S0
+
+##### 1.1.2.2.1 Normal likelihood
+
+```{r th_SIR_normal_two_params2}
+source('./stan_utils.R')
+
+func_params  <-list(recovery_delay = 0.5)
+stan_fun     <-generate_stan_function("SIR", func_params)
+stan_data    <- generate_data_block("normal")
+stan_td      <- generate_transformed_data_block()
+stan_params  <- generate_parameters_block("normal", stocks = "S0")
+initStocks   <- list(Susceptible = "S0", Infected = 10, Recovered = 0)
+stan_tp      <- generate_transformed_parameters("SIR", initStocks)
+normal_model <- c("params[1] ~ uniform(0, 500)", "S0 ~ normal(0, 1000000)",
+                "sigma ~ cauchy( 0 , 2 )", "y ~ normal(incidence, sigma)")
+stan_model   <- generate_model_text(normal_model)
+
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,stan_tp, 
+                   stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR.stan")
+```
+
+###### 1.1.2.2.1.1 Right model (SIR fitting SIR incidence)
+```{r th_SIR_normal_two_params_right2, cache = TRUE, fig.height = 4}
+stan_fit_normal_right2 <- fit_stan_model(
+  n_constants = 1, synthetic_incidence, warm_up = 2000, iterations = 4000,
+  seed = 1694212849, n_difeq = 3)
+
+pairs(stan_fit_normal_right2, pars = c("params[1]", "S0", "sigma"))
+```
+
+```{r g_th_SIR_normal_two_params_right2, cache = TRUE, fig.height = 4}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit_normal_right2, pars = c("effective_contacts", "S0"),
+  rename_pars = rename_pars,
+  x_pos = c(1.0005, 994), 
+  y_pos = c(700, 0.3),
+  y_pos_median = c(650, 0.28), 
+  y_pos_interval = c(600, 0.26))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+
+###### 1.1.2.2.1.2 Wrong model (SIR fitting SEIR incidence)
+
+```{r th_SIR_normal_two_params_wrong2, cache = TRUE}
+stan_fit_normal_wrong2 <- fit_stan_model(
+  n_constants = 1, synthetic_incidence2, warm_up = 2000, iterations = 4000,
+  seed = 779238554, n_difeq = 3)
+
+pairs(stan_fit_normal_wrong2, pars = c("params[1]", "S0", "sigma"))
+```
+
+```{r g_th_SIR_normal_two_params_wrong2, cache = TRUE}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit_normal_wrong2, pars = c("effective_contacts", "S0"),
+  rename_pars = rename_pars,
+  x_pos = c(0.76, 1550), 
+  y_pos = c(90, 0.012),
+  y_pos_median = c(85, 0.011), 
+  y_pos_interval = c(80, 0.010))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+##### 1.1.2.2.2 Poisson distribution
+
+```{r th_SIR_poisson_two_params2}
+source("./stan_utils.R")
+
+func_params <-list(recovery_delay = 0.5)
+stan_fun    <-generate_stan_function("SIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson", stocks = "S0")
+initStocks  <- list(Susceptible = "S0", Infected = 10, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stat_model  <- c("params[1] ~ uniform(0, 500)", "S0 ~ normal(0, 100000)",
+                 "y ~ poisson(incidence)")
+stan_model  <- generate_model_text(stat_model)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR_poisson.stan")
+```
+
+###### 1.1.2.2.2.1 Right model (SIR fitting SIR incidence)
+
+```{r th_SIR_poisson_two_params_right2, cache = TRUE}
+source("./stan_utils.R")
+
+stan_fit_poisson_right2 <- fit_stan_model(
+  stan_file = 'SIR_poisson.stan', n_constants = 1, synthetic_incidence, 
+  warm_up = 2000, iterations = 4000, seed = 1682200822, n_difeq = 3)
+
+pairs(stan_fit_poisson_right2, pars = c("params[1]", "S0"))
+```
+
+```{r g_th_SIR_poisson_two_params_right2, cache = TRUE}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"))
+
+graph_inputs <- generate_graph_inputs(
+  stan_fit_poisson_right2, pars = c("effective_contacts", "S0"),
+  rename_pars = rename_pars,
+  x_pos = c(1.02, 1060), 
+  y_pos = c(30, 0.011),
+  y_pos_median = c(28, 0.01), 
+  y_pos_interval = c(26, 0.009))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+
+###### 1.1.2.2.2.2 Wrong model (SIR fitting SEIR incidence)
+
+```{r th_SIR_poisson_two_params_wrong2, cache = TRUE}
+source("./stan_utils.R")
+
+sf_poisson_wrong2 <- fit_stan_model(
+  stan_file = 'SIR_poisson.stan', n_constants = 1, synthetic_incidence2, 
+  warm_up = 2000, iterations = 4000, seed = 591867144, n_difeq = 3)
+
+pairs(sf_poisson_wrong2, pars = c("params[1]", "S0"))
+```
+
+```{r g_th_SIR_poisson_two_params_wrong2, cache = TRUE}
+source('./graphs.R')
+
+rename_pars <- list(list(new = "effective_contacts", old = "params[1]"))
+
+graph_inputs <- generate_graph_inputs(
+  sf_poisson_wrong2, pars = c("effective_contacts", "S0"),
+  rename_pars = rename_pars,
+  x_pos = c(0.767, 1490), 
+  y_pos = c(54, 0.008),
+  y_pos_median = c(51, 0.0075), 
+  y_pos_interval = c(48, 0.007))
+
+g <- draw_multiple_densities(graph_inputs$densities, graph_inputs$stats_df,
+                             text_size = 2)
+print(g)
+```
+
+\newpage
+
+#### 1.1.2.3 Calibration
+
+```{r g_th_SIR_two_params, cache = TRUE}
+
+produce_SIR_fit <- function(fit, label) {
+  posterior_df <- as.data.frame(fit) %>%
+    rename(effective_contacts = 'params[1]',
+           recoveryProportion = 'params[2]') %>% 
+    mutate(recoveryTime = 1 / recoveryProportion)
+  
+  SIR_obj <- SIR(
+  initInfected = 10,
+  effectiveContacts = mean(posterior_df$effective_contacts), 
+  recoveryTime = mean(posterior_df$recoveryTime))
+  
+  SIR_obj$incidence_data %>% mutate(model = label)
+}
+
+labels   <- c("fit_normal_SIR", "fit_poisson_SIR")
+fits     <- c(sf_normal_right, stan_fit_poisson_right)
+
+fitted_df <- map2_df(fits, labels, produce_SIR_fit)
+df        <- bind_rows(SIR_df, fitted_df)
+
+g1 <- ggplot(df, aes(x = time, y = incidence, group = model)) +
+  geom_line(aes(colour = model), alpha = 0.5) +
+  scale_color_manual(values = c("darkgreen", "blue", "grey")) +
+  scale_y_continuous(limits = c(0,100)) +
+  theme_test() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 5)) 
+
+labels   <- c("fit_normal_SIR", "fit_poisson_SIR")
+fits     <- c(stan_fit_normal_wrong, stan_fit_poisson_wrong)
+
+fitted_df <- map2_df(fits, labels, produce_SIR_fit)
+df        <- bind_rows(SEIR_df, fitted_df)
+
+g2 <- ggplot(df, aes(x = time, y = incidence, group = model)) +
+  geom_line(aes(colour = model), alpha = 0.5) +
+  scale_color_manual(values = c("darkgreen", "blue", "grey")) +
+  scale_y_continuous(limits = c(0,100)) +
+  theme_test() +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size = 5))
+
+grid.arrange(g1, g2, nrow = 1, top = "Fitting effective contacts & recovery delay")
+```
+
+```{r g_th_SIR_two_params2, cache = TRUE}
+
+produce_SIR_fit <- function(fit, label) {
+  posterior_df <- as.data.frame(fit) %>%
+    rename(effective_contacts = 'params[1]')
+  
+  SIR_obj <- SIR(
+  initInfected = 10,
+  initSusceptible = mean(posterior_df$S0),
+  effectiveContacts = mean(posterior_df$effective_contacts), 
+  recoveryTime = 2)
+  
+  SIR_obj$incidence_data %>% mutate(model = label)
+}
+
+labels   <- c("fit_normal_SIR", "fit_poisson_SIR")
+fits     <- c(stan_fit_normal_right2, stan_fit_poisson_right2)
+
+fitted_df <- map2_df(fits, labels, produce_SIR_fit)
+df        <- bind_rows(SIR_df, fitted_df)
+
+g1 <- ggplot(df, aes(x = time, y = incidence, group = model)) +
+  geom_line(aes(colour = model), alpha = 0.5) +
+  scale_color_manual(values = c("darkgreen", "blue", "grey")) +
+  scale_y_continuous(limits = c(0,100)) +
+  theme_test() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 5)) 
+#-------------------------------------------------------------------------------
+
+labels   <- c("fit_normal_SIR", "fit_poisson_SIR")
+fits     <- c(stan_fit_normal_wrong2, sf_poisson_wrong2)
+
+fitted_df <- map2_df(fits, labels, produce_SIR_fit)
+df        <- bind_rows(SEIR_df, fitted_df)
+
+g2 <- ggplot(df, aes(x = time, y = incidence, group = model)) +
+  geom_line(aes(colour = model), alpha = 0.5) +
+  scale_color_manual(values = c("darkgreen", "blue", "grey")) +
+  scale_y_continuous(limits = c(0,100)) +
+  theme_test() +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size = 5))
+
+grid.arrange(g1, g2, nrow = 1, top = "Fitting effective contacts & S0")
+```
+
+
+
+### Fitting three parameters using MCMC assuming normal distribution
+
+```{r th_SIR_normal_three_params, cache = TRUE}
 source('./stan_utils.R')
 
 # stan parameters normal init value. Adds S0
@@ -546,9 +700,14 @@ transformed parameters{
 }
 "
 
-sus_priors <- c("S0 ~ normal(990, 1);",
-                "S0 ~ normal(791, 10);",
-                "S0 ~ normal(791, 250);")
+sus_priors <- c(
+  "S0 ~ normal(990, 1);",
+  "S0 ~ normal(791, 10);",
+  "S0 ~ normal(791, 250);")
+
+stan_fun  <- generate_stan_function("SIR")
+stan_data <- generate_data_block("normal")
+stan_td   <- generate_transformed_data_block()
 
 stan_fits <- vector(mode = "list", length = length(sus_priors))
 
@@ -556,23 +715,24 @@ for(i in seq_len(length(sus_priors))) {
   
   susceptible_prior <- sus_priors[i]
   
-  stan_model <- generate_stan_model_three_params(susceptible_prior)
+  stan_model <- generate_stan_model(susceptible_prior, likelihood = "normal",
+                                    n_params = 3)
   
-  stan_text <- paste0(stan_function_two_parameters, stan_data_normal, 
-                    stan_transformed_data, stan_pn_init_value, 
-                    stan_transformed_parameters, stan_model)
+  stan_text <- paste0(stan_fun, stan_data, stan_td, stan_pn_init_value, 
+                      stan_transformed_parameters, stan_model)
   
   create_stan_file(stan_text, "SIR.stan")
   
-  stan_fit <- fit_stan_model(n_constants = 2, incidence_data$incidence,
-                             warm_up = 2000, iterations = 8000, 
+  stan_fit <- fit_stan_model(n_constants = 2, synthetic_incidence,
+                             warm_up = 1000, iterations = 2000, 
                              seed = 1000000)
   stan_fits[i] <- stan_fit
 }
 ```
 
-```{r}
+```{r g1_th_SIR_normal_three_params, cache = TRUE}
 source('./graphs.R')
+
 graph_inputs <- generate_graph_inputs(stan_fits[[1]], 
                                       3,
                                       x_pos = c(1.020, 2.12, 993),
@@ -587,12 +747,10 @@ g <- draw_multiple_densities(graph_inputs$densities,
 
 g <- g + labs(title = "Prior: normal (990,1)")
 print(g)
-
-
-
-
+pairs(stan_fits[[1]], pars = c("params[1]", "params[2]", "S0"))
 ```
-```{r}
+
+```{r g2_th_SIR_normal_three_params, cache = TRUE}
 graph_inputs <- generate_graph_inputs(stan_fits[[2]], 
                                       3,
                                       x_pos = c(0.84, 4.75, 830),
@@ -607,8 +765,10 @@ g <- draw_multiple_densities(graph_inputs$densities,
 
 g <- g + labs(title = "Prior: normal(791, 10)")
 print(g)
+pairs(stan_fits[[2]], pars = c("params[1]", "params[2]", "S0", "sigma"))
 ```
-```{r}
+
+```{r g3_th_SIR_normal_three_params, cache = TRUE}
 graph_inputs <- generate_graph_inputs(stan_fits[[3]], 
                                       3,
                                       x_pos = c(1.04, 3,1020),
@@ -623,13 +783,17 @@ g <- draw_multiple_densities(graph_inputs$densities,
 
 g <- g + labs(title = "Prior: normal (791,250)")
 print(g)
+pairs(stan_fits[[3]], pars = c("params[1]", "params[2]", "S0", "sigma"))
 ```
 
-# Fitting three parameters using MCMC assuming poisson distribution
+### Fitting three parameters using MCMC assuming poisson distribution
 
-```{r}
+```{r th_SIR_poisson_three_params, cache = TRUE}
 source('./stan_utils.R')
 
+stan_fun    <- generate_stan_function("SIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
 # stan parameters Poisson init value. Adds S0
 stan_pp_init_value <- "
 parameters {
@@ -638,13 +802,12 @@ parameters {
 }
 "
 
-sus_priors <- c("\n",
-                "S0 ~ normal(990, 1);",
-                "S0 ~ normal(791, 1);",
-                "S0 ~ normal(791, 10);",
-                "S0 ~ normal(791, 100);")
+initStocks  <- list(Susceptible = "S0", Infected = 10, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
 
-sus_priors <- sus_priors[[1]]
+sus_priors <- c("S0 ~ normal(990, 1);",
+                "S0 ~ normal(791, 10);",
+                "S0 ~ normal(791, 250);")
 
 stan_fits <- vector(mode = "list", length = length(sus_priors))
 
@@ -652,20 +815,944 @@ for(i in seq_len(length(sus_priors))) {
   
   susceptible_prior <- sus_priors[i]
   
-  stan_model <- generate_stan_model_three_params(susceptible_prior,
-                                                 likelihood = "poisson")
+  stan_model <- generate_stan_model(susceptible_prior,
+                                    likelihood = "poisson",
+                                    n_params = 3)
   
-  stan_text <- paste0(stan_function_two_parameters, stan_data_poisson, 
-                    stan_transformed_data, stan_pp_init_value, 
-                    stan_transformed_parameters, stan_model)
+  stan_text <- paste0(stan_fun, stan_data, stan_td , stan_pp_init_value, 
+                      stan_tp, stan_model)
   
   create_stan_file(stan_text, "SIR.stan")
   
-  stan_fit <- fit_stan_model(n_constants = 2, incidence_data$incidence,
+  stan_fit <- fit_stan_model(n_constants = 2, synthetic_incidence,
                              warm_up = 2000, 
                              iterations = 8000, 
-                             seed = 1168103287)
+                             seed = 1168103287,
+                             n_difeq = 3)
   stan_fits[i] <- stan_fit
 }
 ```
+
+```{r g1_th_SIR_poisson_three_params, cache = TRUE}
+source('./graphs.R')
+
+graph_inputs <- generate_graph_inputs(stan_fits[[1]], 
+                                      3,
+                                      x_pos = c(1.020, 2.12, 993),
+                                      y_pos = c(35, 9, 0.35),
+                                      y_pos_median = c(33, 8.6, 0.335),
+                                      y_pos_interval = c(30, 8, 0.305))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal (990,1)")
+print(g)
+pairs(stan_fits[[1]], pars = c("params[1]", "params[2]", "S0"))
+```
+
+```{r g2_th_SIR_poisson_three_params, cache = TRUE}
+source('./graphs.R')
+
+graph_inputs <- generate_graph_inputs(stan_fits[[2]], 
+                                      3,
+                                      x_pos = c(1.020, 2.12, 993),
+                                      y_pos = c(35, 9, 0.35),
+                                      y_pos_median = c(33, 8.6, 0.335),
+                                      y_pos_interval = c(30, 8, 0.305))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal (791, 10)")
+print(g)
+pairs(stan_fits[[2]], pars = c("params[1]", "params[2]", "S0"))
+```
+
+```{r g3_th_SIR_poisson_three_params, cache = TRUE}
+source('./graphs.R')
+
+graph_inputs <- generate_graph_inputs(stan_fits[[3]], 
+                                      3,
+                                      x_pos = c(1.26, 3.5, 1280),
+                                      y_pos = c(3, 0.8, 0.003),
+                                      y_pos_median = c(2.8, 0.75, 0.0028),
+                                      y_pos_interval = c(2.5, 0.68, 0.0026))
+
+
+g <- draw_multiple_densities(graph_inputs$densities, 
+                             graph_inputs$stats_df,
+                             text_size = 2)
+
+g <- g + labs(title = "Prior: normal(791, 250)")
+print(g)
+pairs(stan_fits[[3]], pars = c("params[1]", "params[2]", "S0"))
+```
+
+## SEIR
+
+### Fit one parameter
+
+#### Poisson distribution
+
+```{r th_SEIR_one_param_poisson, cache = TRUE}
+source('./stan_utils.R')
+func_params <- list(recovery_delay = 0.5, latent_period = 1)
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10, 
+                    Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+poisson_model_1_param <- c(
+  "params[1] ~ uniform(0, 500)",
+  "y         ~ poisson(incidence)"
+)
+stan_model  <- generate_model_text(poisson_model_1_param)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_poisson <- NULL
+stan_fit_poisson <- fit_stan_model(
+  stan_file = "SEIR.stan", n_constants = 1, 
+  incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000, 
+  seed = 1600632916, chains = 3, n_difeq = 4)
+
+g <- stan_dens(stan_fit_poisson, pars = "params[1]")
+print(g)
+```
+
+### Fit two parameters
+
+```{r th_SEIR_two_param, cache = TRUE}
+source('./stan_utils.R')
+func_params <- list(recovery_delay = 0.5)
+stan_fun    <- generate_stan_function("SEIR", func_params)
+initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10, Recovered = 0)
+stan_td     <- generate_transformed_data_block()
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+```
+
+
+#### Normal distribution
+
+```{r th_SEIR_two_param_normal, cache = TRUE}
+source('./stan_utils.R')
+
+stan_data   <- generate_data_block("normal")
+stan_params <- generate_parameters_block("normal")
+
+normal_model_2_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 20)",
+  "sigma     ~ cauchy( 0 , 2 )",
+  "y         ~ normal(incidence, sigma)"
+)
+stan_model  <- generate_model_text(normal_model_2_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR_normal.stan")
+
+stan_fit_normal <- NULL
+
+stan_fit_normal <- fit_stan_model(
+  stan_file      = "SEIR_normal.stan",
+  n_constants    = 2,
+  incidence_data = synthetic_incidence2,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 2008167798,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "sigma"))
+```
+
+
+#### Poisson distribution
+
+```{r th_SEIR_poisson_two_params, cache = TRUE}
+source('./stan_utils.R')
+
+func_params <- list(recovery_delay = 0.5)
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+poisson_model_2_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 20)", 
+  "y         ~ poisson(incidence)"
+)
+stan_model  <- generate_model_text(poisson_model_2_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR_poisson.stan")
+```
+
+
+#### Right model
+
+```{r th_SEIR_two_param_poisson, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fit_right <- NULL
+stan_fit_right <- fit_stan_model(
+  stan_file = "SEIR_poisson.stan", n_constants = 2, 
+  incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000, 
+  seed = 435686929, chains = 3, n_difeq = 4)
+
+pairs(stan_fit_right, pars = c("params[1]", "params[2]"))
+g <- stan_dens(stan_fit_right, pars = c("params[1]", "params[2]"))
+print(g)
+```
+
+#### Wrong model
+
+```{r th_SEIR_poisson_two_params_wrong, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fit_wrong <- fit_stan_model(
+  stan_file = "SEIR_poisson.stan", n_constants = 2, synthetic_incidence,
+  warm_up = 2000, iterations = 4000, seed = 28803987, n_difeq = 4)
+
+pairs(stan_fit_wrong, pars = c("params[1]", "params[2]"))
+```
+
+
+
+### Fit three parameters
+
+#### Normal distribution
+
+```{r th_SEIR_three_params_normal, cache=TRUE}
+source('./stan_utils.R')
+
+stan_fun    <- generate_stan_function("SEIR")
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10,
+                    Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+
+create_input_for_model_block <- function(prior_incubation_proportion,
+                                         prior_recovery_proportion) {
+  
+   c("params[1] ~ uniform(0, 500)", prior_incubation_proportion,
+     prior_recovery_proportion, "sigma     ~ cauchy( 0 , 2 )",
+     "y         ~ normal(incidence, sigma)")
+}
+
+priors_list <- list(
+  list(label = "Flat prior",
+       incubation_proportion = "params[2] ~ uniform(0, 20)",
+       recovery_proportion = "params[3] ~ uniform(0, 20)"),
+  list(label = "Regularising prior",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0, 10)"),
+  list(label = "Strong prior - incorrect",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0.35, 0.01)"),
+  list(label = "Strong prior - correct",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0.50, 0.01)"))
+
+stan_fits <- vector(mode = "list", length = length(priors_list))
+index     <- 1
+
+fitting_output <- lapply(priors_list, function(priors) {
+  normal_model_3_params_SEIR <- create_input_for_model_block(
+    priors$incubation_proportion, priors$recovery_proportion)
+  
+  plot_label  <<- priors$label
+  stan_model  <- generate_model_text(normal_model_3_params_SEIR)
+
+  stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+  create_stan_file(stan_text, "SEIR.stan")
+  
+  stan_fit_normal <- NULL
+  stan_fit_normal <- fit_stan_model(
+    stan_file = "SEIR.stan", n_constants = 3,
+    incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000,
+    seed = 264842530, chains = 3, n_difeq = 4)
+  
+  stan_fits[[index]] <- stan_fit_normal
+  index <- index + 1
+  pairs(stan_fit_normal, main = plot_label,
+        pars = c("params[1]", "params[2]", "params[3]", "sigma"))
+  
+})
+```
+
+
+#### Poisson distribution
+
+```{r th_SEIR_three_params_poisson, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fun    <- generate_stan_function("SEIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10, 
+                    Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+poisson_model_3_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ normal(0, 10)",
+  "params[3] ~ normal(0.5, 0.01)",
+  "y         ~ poisson(incidence)"
+)
+stan_model  <- generate_model_text(poisson_model_3_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_poisson <- NULL
+stan_fit_poisson <- fit_stan_model(
+  stan_file = "SEIR.stan", n_constants = 3, 
+  incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000, 
+  seed = 1789833883, chains = 3, n_difeq = 4)
+
+pairs(stan_fit_poisson, pars = c("params[1]", "params[2]", "params[3]"))
+```
+
+
+# PRACTICAL APPROACH (Calibrating real data)
+
+
+## Flu data 57
+
+
+```{r fludata, cache = TRUE}
+source('./stan_utils.R')
+
+
+flu_data <- read_csv("./data/flu1957.csv") %>% 
+  mutate(total = Age.0.4 + Age.5.14 + Age.15.44 + Age.45.over)
+
+g <- ggplot(flu_data, aes(x = week, y = total)) +
+  geom_line(colour = "lightgrey") +
+  geom_point() +
+  theme_test()
+
+print(g)
+
+population     <- 8000
+I0             <- flu_data %>% slice(1) %>% pull(total)
+S0             <- population - I0
+flu_incidence  <- flu_data %>% slice(-1) %>% pull(total)
+
+df1 <- flu_data %>% select(week, total) %>% slice(-1) %>% 
+  mutate(type = "data",week = week - 1) %>% rename(incidence = total)
+```
+
+## SIR
+### One parameter (Contact rate = variable, recovery delay = 1.5 days)
+
+```{r SIR_Flu_poisson_1_param, cache = TRUE}
+source('./stan_utils.R')
+
+recovery_proportion <- 7 / 1.5 # the inverse of 1.5 days in weeks
+func_params <- list(recovery_delay = round(recovery_proportion, 10))
+stan_fun    <- generate_stan_function("SIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = S0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "poisson",
+                                   n_params = 1)
+
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,
+                    stan_tp, stan_model, sep = "\n \n")
+
+create_stan_file(stan_text, "SIR.stan")
+
+stan_fit_poisson <- fit_stan_model(n_constants    = 1, 
+                           incidence_data = flu_incidence,
+                           warm_up        = 2000, 
+                           iterations     = 4000, 
+                           seed           = 778780507,
+                           chains         = 3,
+                           n_difeq        = 3)
+```
+
+```{r SIR_Flu_normal_1_param, cache = TRUE}
+source('./stan_utils.R')
+
+recovery_proportion <- 7 / 1.5
+func_params <- list(recovery_delay = round(recovery_proportion, 10))
+stan_fun    <- generate_stan_function("SIR", func_params)
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = S0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "normal",
+                                  n_params = 1)
+
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,
+                    stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR.stan")
+
+stan_fit_normal <- fit_stan_model(n_constants    = 1,
+                                  incidence_data = flu_incidence,
+                                  warm_up        = 2000, 
+                                  iterations     = 4000, 
+                                  seed           = 1201008965,
+                                  chains         = 3,
+                                  n_difeq        = 3)
+
+```
+
+
+
+```{r g_SIR_Flu_1_param, cache=TRUE}
+posterior_df <- as.data.frame(stan_fit_poisson) %>% 
+  rename(effective_contacts = 'params[1]')
+
+mean_ec <- mean(posterior_df$effective_contacts)
+
+source('./deterministic_models/SIR.R')
+
+model_output <- SIR(initInfected      = I0,
+                    initSusceptible   = S0,
+                    effectiveContacts = mean_ec, 
+                    recoveryTime      = 1 / recovery_proportion,
+                    start             = 0,
+                    finish            = 18)
+
+df2 <- model_output$incidence_data %>% rename(week = time) %>% 
+  mutate(type = "Poisson")
+
+posterior_df <- as.data.frame(stan_fit_normal) %>% 
+  rename(effective_contacts = 'params[1]')
+
+mean_ec <- mean(posterior_df$effective_contacts)
+
+model_output <- SIR(initInfected      = I0,
+                    initSusceptible   = S0,
+                    effectiveContacts = mean_ec, 
+                    recoveryTime      = 1 / recovery_proportion,
+                    start             = 0,
+                    finish            = 18)
+
+df3 <- model_output$incidence_data %>% rename(week = time) %>% 
+  mutate(type = "Gaussian")
+
+df  <- bind_rows(df1, df2, df3)
+
+ggplot(df, aes(x = week, y = incidence, group = type)) +
+  geom_line(aes(colour = type, linetype = type)) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
+  scale_colour_manual(values = c("lightgrey", "blue", "steelblue")) +
+  theme_test()
+```
+
+
+### Two parameters (Contact rate & recovery delay are variables)
+
+```{r real_SIR_Flu_poisson_2_param, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fun    <- generate_stan_function("SIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = S0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "poisson",
+                                  n_params = 2)
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,
+                    stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR.stan")
+
+stan_fit_poisson <- NULL
+stan_fit_poisson <- fit_stan_model(
+  n_constants    = 2, 
+  incidence_data = flu_incidence,
+  warm_up        = 2000, 
+  iterations     = 4000, 
+  seed           = 1410314945,
+  chains         = 3)
+```
+
+```{r SIR_Flu_normal_2_param, cache = TRUE}
+source('./stan_utils.R')
+
+stan_fun     <- generate_stan_function("SIR")
+stan_data    <- generate_data_block("normal")
+stan_td      <- generate_transformed_data_block()
+stan_params  <- generate_parameters_block("normal")
+initStocks   <- list(Susceptible = S0, Infected = I0, Recovered = 0)
+stan_tp      <- generate_transformed_parameters("SIR", initStocks)
+normal_model <- c("params[1] ~ uniform(0, 500)", "params[2] ~ uniform(0, 20)",
+                "sigma ~ cauchy( 0 , 2 )", "y ~ normal(incidence, sigma)")
+stan_model   <- generate_model_text(normal_model)
+
+stan_text <- paste(stan_fun, stan_data, stan_td, stan_params,
+                    stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SIR.stan")
+
+stan_fit_normal <- NULL
+stan_fit_normal <- fit_stan_model(
+  n_constants    = 2, 
+  incidence_data = flu_incidence,
+  warm_up        = 2000, 
+  iterations     = 4000, 
+  seed           = 1190756971,
+  chains         = 3)
+
+pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "sigma"))
+```
+
+```{r graph_two_params, cache = TRUE}
+fits   <- list(stan_fit_poisson, stan_fit_normal)
+labels <- c("Poisson", "Gaussian") 
+
+fits_df <- map2_df(fits, labels, function(fit, label) {
+  
+  samples <- as.data.frame(fit) %>% 
+    rename(effective_contacts = 'params[1]',
+         recovery_proportion = 'params[2]')
+  
+  mean_ec <- mean(samples$effective_contacts)
+  mean_rd <- mean(samples$recovery_proportion)
+  
+  source('./deterministic_models/SIR.R')
+  
+  model_output <- SIR(initInfected      = I0,
+                    initSusceptible     = S0,
+                    effectiveContacts   = mean_ec, 
+                    recoveryTime        = 1/ mean_rd,
+                    start               = 0,
+                    finish              = 18)
+  
+  model_output$incidence_data %>% rename(week = time) %>% 
+  mutate(type = label)
+})
+
+df  <- bind_rows(df1, fits_df)
+
+ggplot(df, aes(x = week, y = incidence, group = type)) +
+  geom_line(aes(colour = type, linetype = type)) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
+  scale_colour_manual(values = c("lightgrey", "blue", "steelblue")) +
+  theme_test()
+```
+
+### Three parameters (Contact rate, recovery delay & S0)
+
+```{r real_SIR_poisson_3_param, cache = TRUE}
+
+stan_fun    <- generate_stan_function("SIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+# stan parameters Poisson init value. Adds S0
+stan_pp_init_value <- "
+parameters {
+  real<lower = 0> params[n_params]; // Model parameters
+  real<lower = 0> S0; // Initial number of susceptibles
+}
+"
+initStocks <- list(Susceptible = "S0", Exposed = 0, 
+                    Infected = I0, Recovered = 0)
+stan_tp    <- generate_transformed_parameters("SIR", initStocks)
+
+S0_priors  <- c("S0 ~ normal(1914, 1000)", "S0 ~ normal(8000, 10)")
+
+stan_fits_3_params <- purrr::map(S0_priors, function(S0_prior) {
+  stat_model <- c("params[1] ~ uniform(0, 500)", "params[2] ~ uniform(0, 20)", 
+                S0_prior, "y ~ poisson(incidence)")
+  stan_model <- generate_model_text(stat_model)
+  
+  stan_text  <- paste0(stan_fun, stan_data, stan_td , stan_pp_init_value,
+                       stan_tp, stan_model)
+  
+  create_stan_file(stan_text, "SIR_poisson.stan")
+  
+  stan_fit <- fit_stan_model(
+  stan_file = "SIR_poisson.stan",n_constants = 2, flu_incidence, warm_up = 2000, 
+    iterations = 4000, seed = 2131715700, n_difeq = 3)
+  
+  pairs(stan_fit, pars = c("params[1]", "params[2]", "S0"))
+  stan_fit
+})
+```
+
+
+```{r g_real_SIR_poisson_3_param, cache = TRUE}
+RMSE <- function(s, a){
+  sqrt(mean((s - a) ^ 2))
+}
+
+labels <- c("fit wrong S0", "fit right S0")
+
+fits_df <- map2_df(stan_fits_3_params, labels, function(stan_fit, label) {
+  
+  samples <- as.data.frame(stan_fit) %>% 
+    rename(effective_contacts = 'params[1]',
+         recovery_proportion = 'params[2]')
+  
+  mean_ec <- mean(samples$effective_contacts)
+  mean_rd <- mean(samples$recovery_proportion)
+  mean_S0 <- mean(samples$S0)
+  
+  source('./deterministic_models/SIR.R')
+  
+  model_output <- SIR(
+    initInfected      = I0,
+    initSusceptible   = mean_S0,
+    effectiveContacts = mean_ec, 
+    recoveryTime      = 1 / mean_rd,
+    start             = 0,
+    finish            = 18)
+  
+    model_output$incidence_data %>% rename(week = time) %>%
+    mutate(type = label)
+})
+
+
+df <- bind_rows(df1, fits_df)
+
+errors <- map_dbl(labels, function(label) {
+  simulated <- fits_df %>% filter(type == label) %>% pull(incidence)
+  actual    <- df1$incidence
+  RMSE(simulated, actual)
+})
+
+ggplot(df, aes(x = week, y = incidence, group = type)) +
+  geom_line(aes(colour = type, linetype = type)) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
+  scale_colour_manual(values = c("lightgrey", "blue", "steelblue")) +
+  annotate("text", x = 8, y = 550, size = 3,
+           label = paste0("RMSE = ",round(errors[[1]], 1)), colour = "steelblue") +
+  annotate("text", x = 8, y = 400, size = 3,
+           label = paste0("RMSE = ",round(errors[[2]], 1)), colour = "blue") +
+  theme_test()
+```
+
+
+
+
+## SEIR
+
+### One parameter (Contact rate is variable, both latent period & recovery delay are 1.5 days)
+
+```{r SEIR_Flu_poisson_1_param, cache = TRUE}
+source('./stan_utils.R')
+
+func_params <- list(latent_period  = round(7 / 1, 10), # inverse
+                    recovery_delay = round(7 / 1, 10)) # inverse
+
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+
+initStocks  <- list(Susceptible = S0, Exposed = 0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "poisson", n_params = 1)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_poisson <- NULL
+stan_fit_poisson <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 1,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 609051934,
+  chains         = 3,
+  n_difeq        = 4)
+```
+
+
+```{r SEIR_Flu_normal_1_param, cache=TRUE}
+source('./stan_utils.R')
+
+func_params <- list(latent_period  = round(7 / 1.5, 10), # inverse
+                    recovery_delay = round(7 / 1.5, 10)) # inverse
+
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = S0, Exposed = 0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "normal", n_params = 1)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+create_stan_file(stan_text, "SEIR.stan")
+stan_fit_normal  <- NULL
+stan_fit_normal  <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 1,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 563156067,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_normal, pars = c("params[1]", "sigma"))
+```
+
+```{r g_SEIR_Flu_1_param, cache = TRUE}
+posterior_df <- as.data.frame(stan_fit_poisson) %>% 
+  rename(effective_contacts = 'params[1]')
+
+mean_ec <- mean(posterior_df$effective_contacts)
+
+
+source('./deterministic_models/SEIR.R')
+
+model_output <- SEIR(initInfected      = I0,
+                    initSusceptible    = S0,
+                    effectiveContacts  = mean_ec, 
+                    recoveryTime       = 1.5 / 7,
+                    latentPeriod       = 1.5 / 7,
+                    start              = 0,
+                    finish             = 18)
+
+df2 <- model_output$incidence_data %>% rename(week = time) %>% 
+  mutate(type = "Poisson")
+
+df  <- bind_rows(df1, df2)
+
+ggplot(df, aes(x = week, y = incidence, group = type)) +
+  geom_line(aes(colour = type, linetype = type)) +
+  scale_linetype_manual(values = c("solid", "dashed")) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  theme_test()
+```
+
+### Two parameters (effective contacts & latent period are variables, recovery delay is 1 day)
+
+```{r real_SEIR_poisson_2_param, cache = TRUE}
+source('./stan_utils.R')
+
+func_params <- list(recovery_delay = round(7 / 1, 10))
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 7998, Exposed = 0, Infected = 2, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+poisson_model_2_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 200)", # the calibrated value moves as the interval is wider.
+  "y         ~ poisson(incidence)"
+)
+stan_model  <- generate_model_text(poisson_model_2_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_poisson <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 2,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 1320624164,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_poisson, pars = c("params[1]", "params[2]"))
+```
+
+```{r real_SEIR_normal_2_param, cache=TRUE}
+source('./stan_utils.R')
+func_params <- list(recovery_delay = round(7 / 1, 10))
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = 7998, Exposed = 0, Infected = 2, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+normal_model_2_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 200)",
+  "sigma     ~ cauchy( 0 , 2 )",
+  "y         ~ normal(incidence, sigma)"
+)
+stan_model  <- generate_model_text(normal_model_2_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_normal <- NULL
+
+stan_fit_normal <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 2,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 1471558969,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_normal, pars = c("params[1]", "params[2]"))
+```
+
+
+```{r SEIR_graph_two_params, cache=TRUE}
+
+fits   <- list(stan_fit_poisson, stan_fit_normal)
+labels <- c("Poisson", "Gaussian") 
+
+fits_df <- map2_df(fits, labels, function(fit, label) {
+  
+  samples <- as.data.frame(fit) %>% 
+    rename(effective_contacts = 'params[1]',
+         incubation_proportion = 'params[2]')
+  
+  mean_ec <- mean(samples$effective_contacts)
+  mean_ip <- mean(samples$incubation_proportion)
+  
+  source('./deterministic_models/SIR.R')
+  
+  model_output <- SEIR(initInfected      = I0,
+                    initSusceptible    = S0,
+                    effectiveContacts  = mean_ec, 
+                    recoveryTime       = 1 / 7,
+                    latentPeriod       = 1 / mean_ip,
+                    start              = 0,
+                    finish             = 18)
+  
+  model_output$incidence_data %>% rename(week = time) %>% 
+  mutate(type = label)
+})
+
+df  <- bind_rows(df1, fits_df)
+
+ggplot(df, aes(x = week, y = incidence, group = type)) +
+  geom_line(aes(colour = type, linetype = type)) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
+  scale_colour_manual(values = c("lightgrey", "blue", "steelblue")) +
+  theme_test()
+```
+
+
+### Three parameters (effective contacts, latent period and recovery delay are variables)
+
+### Poisson
+
+```{r real_SEIR_poisson_3_param, cache=TRUE}
+source('./stan_utils.R')
+stan_fun    <- generate_stan_function("SEIR")
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+initStocks  <- list(Susceptible = 7998, Exposed = 0, Infected = 2, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+poisson_model_3_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 50)",
+  "params[3] ~ uniform(0, 50)",
+  "y         ~ poisson(incidence)"
+)
+stan_model  <- generate_model_text(poisson_model_3_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_poisson <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 3,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 1320624164,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_poisson, pars = c("params[1]", "params[2]", "params[3]"))
+```
+
+
+### Normal
+```{r real_SEIR_normal_3_param, cache=TRUE}
+source('./stan_utils.R')
+
+stan_fun    <- generate_stan_function("SEIR")
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = 7998, Exposed = 0, Infected = 2, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+
+normal_model_3_params_SEIR <- c(
+  "params[1] ~ uniform(0, 500)",
+  "params[2] ~ uniform(0, 50)",
+  "params[3] ~ uniform(0, 50)",
+  "sigma     ~ cauchy( 0 , 2 )",
+  "y         ~ normal(incidence, sigma)"
+)
+stan_model  <- generate_model_text(normal_model_3_params_SEIR)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+create_stan_file(stan_text, "SEIR.stan")
+
+stan_fit_normal <- NULL
+
+stan_fit_normal <- fit_stan_model(
+  stan_file      = "SEIR.stan",
+  n_constants    = 3,
+  incidence_data = flu_incidence,
+  warm_up        = 1000,
+  iterations     = 2000,
+  seed           = 338192184,
+  chains         = 3,
+  n_difeq        = 4)
+
+pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "params[3]", "sigma"))
+```
+
 
