@@ -20,22 +20,21 @@ draw_multiple_densities <- function(densities_df, stats_df,
           axis.ticks.y = element_blank())
 }
 
-generate_graph_inputs <- function(stan_fit, params = 2, x_pos, y_pos, 
-                                  y_pos_median, y_pos_interval) {
+generate_graph_inputs <- function(stan_fit, x_pos, y_pos, y_pos_median, 
+                                  y_pos_interval, pars, rename_pars = NULL) {
   
-  posterior_df <- as.data.frame(stan_fit) %>% 
-    rename(effective_contacts = 'params[1]',
-           recoveryTime = 'params[2]')
+  posterior_df <- as.data.frame(stan_fit) 
   
-  if(params == 2) {
-    params_df<- posterior_df %>% 
-      select(effective_contacts, recoveryTime)
+  for(rename_list in rename_pars) {
+    posterior_df <- posterior_df %>% 
+      rename(!!rename_list$new := !!rename_list$old)
   }
   
-  if(params == 3) {
-    params_df<- posterior_df %>% 
-      select(effective_contacts, recoveryTime, S0)
+  if("recoveryTime" %in% pars) {
+    posterior_df <- mutate(posterior_df, recoveryTime = 1 / recoveryProportion)
   }
+     
+  params_df <- select(posterior_df, pars)
   
   credible_intervals <- apply(params_df, 2, HPDI, prob = 0.95) %>% t() %>% 
     as.data.frame() %>% 
