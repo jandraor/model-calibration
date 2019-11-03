@@ -33,6 +33,11 @@ generate_graph_inputs <- function(stan_fit, x_pos, y_pos, y_pos_median,
   if("recoveryTime" %in% pars) {
     posterior_df <- mutate(posterior_df, recoveryTime = 1 / recoveryProportion)
   }
+  
+  if("latent_period" %in% pars) {
+    posterior_df <- mutate(posterior_df, 
+                           latent_period = 1 / incubation_proportion)
+  }
      
   params_df <- select(posterior_df, pars)
   
