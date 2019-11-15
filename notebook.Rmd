@@ -17,6 +17,18 @@ library(purrr)
 library(rethinking)
 library(gridExtra)
 library(bayesplot)
+library(tidyr)
+```
+
+
+```{r loadReadSDr}
+source("../../R_Packages/readsdr/R/generate_deSolve_components.R")
+source("../../R_Packages/readsdr/R/generate_igraph_inputs.R")
+source("../../R_Packages/readsdr/R/xmile_helpers.R")
+source("../../R_Packages/readsdr/R/create_stan_function.R")
+source("../../R_Packages/readsdr/R/read_xmile.R")
+source("../../R_Packages/readsdr/R/arrange_variables.R")
+source("../../R_Packages/readsdr/R/extract_variables.R")
 ```
 
 ```{r}
@@ -1579,7 +1591,7 @@ pairs(stan_fit_poisson, pars = c("params[1]", "params[2]", "params[3]"))
 # 2. REAL DATA
 
 
-## Flu data 57
+## 2.1 Flu data 57
 
 
 ```{r fludata, cache = TRUE}
@@ -1589,13 +1601,6 @@ source('./stan_utils.R')
 flu_data <- read_csv("./data/flu1957.csv") %>% 
   mutate(total = Age.0.4 + Age.5.14 + Age.15.44 + Age.45.over)
 
-g <- ggplot(flu_data, aes(x = week, y = total)) +
-  geom_line(colour = "lightgrey") +
-  geom_point() +
-  theme_test()
-
-print(g)
-
 population     <- 8000
 I0             <- flu_data %>% slice(1) %>% pull(total)
 S0             <- population - I0
@@ -1603,9 +1608,20 @@ flu_incidence  <- flu_data %>% slice(-1) %>% pull(total)
 
 df1 <- flu_data %>% select(week, total) %>% slice(-1) %>% 
   mutate(type = "data",week = week - 1) %>% rename(incidence = total)
+
+flu_data_long <-  pivot_longer(flu_data, -week, names_to = "variable", "value")
+  
+
+g <- ggplot(flu_data_long, aes(x = week, y = value)) +
+  geom_line(colour = "lightgrey") +
+  facet_wrap(~variable) +
+  geom_point() +
+  theme_test()
+
+print(g)
 ```
 
-## SIR
+## 2.2 SIR AGGREGATED
 ### One parameter (Contact rate = variable, recovery delay = 1.5 days)
 
 ```{r SIR_Flu_poisson_1_param, cache = TRUE}
@@ -1897,7 +1913,7 @@ ggplot(df, aes(x = week, y = incidence, group = type)) +
 
 
 
-## SEIR
+## 2.3 SEIR AGGREGATED
 
 ### One parameter (Contact rate is variable, both latent period & recovery delay are 1.5 days)
 
@@ -2189,5 +2205,154 @@ stan_fit_normal <- fit_stan_model(
 
 pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "params[3]", "sigma"))
 ```
+
+
+## 2.4 SEIR DISAGGREGATED
+
+```{r}
+source('./stan_utils.R')
+stan_data  <- paste(
+  "data {",
+  "  int<lower = 1> n_obs; // Number of weeks sampled",
+  "  int<lower = 1> n_params; // Number of model parameters",
+  "  int<lower = 1> n_difeq; // Number of differential equations in the system",
+  "  int y1[n_obs];",
+  "  int y2[n_obs];",
+  "  int y3[n_obs];",
+  "  int y4[n_obs];",
+  "  real t0; // Initial time point (zero)",
+  "  real ts[n_obs]; // Time points that were sampled",
+  "}", sep = "\n")
+
+stan_td     <- generate_transformed_data_block()
+
+stan_params <- generate_parameters_block("poisson")
+```
+
+
+### 2.4.1 Latent period & Recovery delay are equal to 1 day
+
+```{r}
+model_file <- "./deterministic_models/4_cohorts_SEIR.stmx"
+mdl <- read_xmile(model_file)
+constant_names <- map_chr(mdl$description$constants, "name")
+params <- constant_names[!constant_names%in% c("latent_period", 
+                                               "recovery_time")]
+
+counter <- 0
+
+stan_init_stocks <- sapply(mdl$description$levels, function(level) {
+  counter <<- counter + 1
+  paste0("  y0[", counter, "] = ", level$initValue, ";")
+}) %>% paste(collapse = "\n")
+
+stan_tp <- paste(
+  "transformed parameters{",
+  "  real y_hat[n_obs, n_difeq]; // Output from the ODE solver",
+  "  real y0[n_difeq]; // Initial conditions",
+  "  real incidence1[n_obs];",
+  "  real incidence2[n_obs];",
+  "  real incidence3[n_obs];",
+  "  real incidence4[n_obs];",
+  stan_init_stocks,
+  "  y_hat = integrate_ode_rk45(SEIR_extended, y0, t0, ts, params, x_r, x_i);",
+  "  incidence1[1] =  y_hat[1, 3] + y_hat[1, 4] - y0[3] - y0[4];",
+  "  incidence2[1] =  y_hat[1, 7] + y_hat[1, 8] - y0[7] - y0[8];",
+  "  incidence3[1] =  y_hat[1, 11] + y_hat[1, 12] - y0[11] - y0[12];",
+  "  incidence4[1] =  y_hat[1, 15] + y_hat[1, 16] - y0[15] - y0[16];",
+  "  for (i in 1:n_obs-1) {",
+  "    incidence1[i + 1] = y_hat[i + 1, 3] + y_hat[i + 1, 4] - y_hat[i, 3] - y_hat[i, 4] + 0.000001;",
+  "    incidence2[i + 1] = y_hat[i + 1, 7] + y_hat[i + 1, 8] - y_hat[i, 7] - y_hat[i, 8] + 0.000001;",
+  "    incidence3[i + 1] = y_hat[i + 1, 11] + y_hat[i + 1, 12] - y_hat[i, 11] - y_hat[i, 12] + 0.000001;",
+  "    incidence4[i + 1] = y_hat[i + 1, 15] + y_hat[i + 1, 16] - y_hat[i, 15] - y_hat[i, 16] + 0.000001;",
+  "   }",
+  "}", sep = "\n")
+
+override_consts <- list(
+  list(name = "recovery_time", value = round(1 / 7, 10)),
+  list(name = "latent_period", value = round(1 / 7, 10)))
+
+stan_fun   <- create_stan_function(model_file, "SEIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.0003)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SEIR_241.stan"
+create_stan_file(stan_text, filename)
+
+cat(stan_text)
+```
+
+
+```{r, cache = TRUE}
+stan_d = list(n_obs    = length(flu_data$Age.0.4),
+              n_params = 10, 
+              n_difeq  = 16, # number of differential equations
+              y1       = flu_data$Age.0.4,
+              y2       = flu_data$Age.5.14,
+              y3       = flu_data$Age.15.44,
+              y4       = flu_data$Age.45.over,
+              t0       = 0,
+              ts       = 1:length(flu_data$Age.0.4))
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.4 <- stan(fit = test, data = stan_d, chains = 3, warmup = 2000,
+                 iter   = 4000, cores  = 3, seed = 1099652217, refresh = 2)
+```
+
+
+```{r}
+posterior_df <- as.data.frame(stan_fit_2.4)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:19, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r}
+age_groups <- unique(comparison_data$variable)
+map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+```
+
 
 
