@@ -73,3 +73,60 @@ generate_graph_inputs <- function(stan_fit, x_pos, y_pos, y_pos_median,
   list(densities = densities,
        stats_df  = stats_df)
 }
+
+draw_density <- function(data_vector, g_params) {
+  credible_interval <- HPDI(data_vector, prob = 0.95)
+  mean_param        <- mean(data_vector)
+  median_param      <- median(data_vector)
+  
+  hist.y <- density(data_vector) %$% 
+    data.frame(x = x, y = y) %>% 
+    mutate(area = x >= credible_interval[1] & x <= credible_interval[2])
+  
+  g1 <- ggplot(hist.y, aes(x = x)) + 
+    geom_line(aes(y = y)) +
+    geom_text(aes(x = g_params$x_pos, y = g_params$ypos_mean), 
+              label = paste0("mean   = ", round(mean_param, 4)),
+              colour = "#1261A0", size = g_params$text_size) +
+    geom_text(aes(x = g_params$x_pos, y = g_params$ypos_median), 
+              label = paste0("median = ", round(median_param, 4)),
+              colour = "#009999", size = g_params$text_size) +
+    annotate("text", x = g_params$x_pos, y = g_params$ypos_interval, 
+             label = paste0("[",
+                            round(credible_interval[1], 4),",",
+                            round(credible_interval[2], 4), "]"),
+             size = g_params$text_size,
+             colour = "grey") +
+    geom_ribbon(aes(ymin = 0, ymax = y, fill = area)) +
+    scale_fill_manual(values = c(NA, "lightgrey")) + 
+    geom_vline(aes(xintercept = mean_param),
+               color = "#1261A0", linetype ="dashed", size = 1) +
+    geom_vline(aes(xintercept = median_param),
+               color = "#009999", linetype ="dashed", size = 1) +
+    theme_classic() +
+    theme(legend.position = "none",
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          plot.title = element_text(color = "#404040", size = 8)) +
+    labs(x = g_params$xlabel, title = g_params$title)
+}
+
+draw_WAIFW <- function(WAIFW, subtitle) {
+  library(reshape2)
+  
+  WAIFW_df <- melt(normalised_WAIFW)
+  
+  ggplot(data = WAIFW_df, aes(x=Var1, 
+                              y = ordered(Var2, levels = rev(sort(unique(Var2)))), 
+                              fill = value)) + 
+    geom_tile() +
+    scale_fill_gradient(low = "lightblue", high = "darkblue") +
+    geom_text(aes(label = round(value)), colour = "white", size = 2) +
+    theme_minimal() + 
+    labs(y ="", x = "",subtitle = subtitle) +
+    theme(legend.position = "none",
+          plot.subtitle = element_text(color = "#404040", size = 8),
+          axis.text.x = element_text(size = 6),
+          axis.text.y = element_text(size = 6))
+}
