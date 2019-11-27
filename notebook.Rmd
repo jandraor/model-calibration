@@ -12,12 +12,15 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(ggalt)
 library(rstan)
 library(purrr)
 library(rethinking)
 library(gridExtra)
 library(bayesplot)
 library(tidyr)
+library(reshape2)
+library(ggsci)
 devtools::load_all("../../R_Packages/readsdr/")
 ```
 
@@ -51,11 +54,14 @@ synthetic_incidence2 <- SEIR_output$incidence_data$incidence
 
 incidence_df <- bind_rows(SIR_df, SEIR_df)
 
-ggplot(incidence_df, aes(x = time, y = incidence, group = model)) +
+g_incidence <- ggplot(incidence_df, aes(x = time, y = incidence, 
+                                        group = model)) +
   geom_line(aes(colour = model)) +
   scale_colour_brewer(palette = "Greys") +
   geom_point(aes(shape = model)) +
   theme_test()
+
+ggsave("./plots/g_incidence.png", dpi = "print", height = 5, width = 8)
 ```
 
 ## 1.1 SIR
@@ -80,12 +86,18 @@ stan_model  <- generate_stan_model(likelihood = "normal",
 stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
                      stan_tp, stan_model, sep = "\n")
 
-create_stan_file(stan_text, "SIR.stan")
+filename <- "SIR_111.stan"
+create_stan_file(stan_text, filename)
 
 stan_fit <- fit_stan_model(
-  stan_file = "SIR.stan", n_constants = 1, synthetic_incidence, warm_up = 2000, 
+  stan_file = filename, n_constants = 1, synthetic_incidence, warm_up = 2000, 
   iterations = 4000, seed = 191165034, n_difeq = 3)
 ```
+```{r}
+g_st <- stan_trace(stan_fit, pars = c("params[1]", "sigma"))
+ggsave("./plots/g_trace111.png", dpi = "print", height = 5, width = 8)
+```
+
 
 ```{r g_th_oneParam_SIR_normal, cache = TRUE}
 posterior_df <- as.data.frame(stan_fit) %>% 
@@ -200,6 +212,10 @@ g2 <- ggplot(hist.y, aes(x = x)) +
         axis.text.y = element_blank(),
         axis.ticks.y = element_blank()) +
   labs(x = "Effective contacts", title = "Poisson likelihood")
+```
+
+```{r}
+ggsave("./plots/g_ec_normal_111.png", g1, dpi = "print", height = 5, width = 8)
 ```
 
 
@@ -1352,7 +1368,12 @@ stan_fit_normal <- fit_stan_model(
 ```
 
 ```{r, fig.height= 4}
-mcmc_pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "sigma"))
+np <- nuts_params(stan_fit_normal)
+
+mcmc_pairs(
+  stan_fit_normal, np = np, pars = c("params[1]", "params[2]", "sigma"),
+  max_treedepth = with(np, -1 + max(Value[Parameter == "treedepth__"])))
+
 stan_trace(stan_fit_normal, pars = c("params[1]", "params[2]"))
 ```
 
@@ -1542,7 +1563,7 @@ mcmc_pairs(
 ```
 
 
-#### Poisson distribution
+#### 1.2.3.2 Poisson distribution
 
 ```{r th_SEIR_three_params_poisson, cache = TRUE}
 source('./stan_utils.R')
@@ -1555,28 +1576,94 @@ initStocks  <- list(Susceptible = 990, Exposed = 0, Infected = 10,
                     Recovered = 0)
 stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
 
-poisson_model_3_params_SEIR <- c(
-  "params[1] ~ uniform(0, 500)",
-  "params[2] ~ normal(0, 10)",
-  "params[3] ~ normal(0.5, 0.01)",
-  "y         ~ poisson(incidence)"
-)
-stan_model  <- generate_model_text(poisson_model_3_params_SEIR)
+create_input_for_model_block <- function(prior_incubation_proportion,
+                                         prior_recovery_proportion) {
+  
+   c("params[1] ~ uniform(0, 20)", prior_incubation_proportion,
+     prior_recovery_proportion,"y ~ poisson(incidence)")
+}
 
-stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+priors_list <- list(
+  list(label = "Flat prior",
+       incubation_proportion = "params[2] ~ uniform(0, 20)",
+       recovery_proportion = "params[3] ~ uniform(0, 20)"),
+  list(label = "Regularising prior",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0, 10)"),
+  list(label = "Strong prior - incorrect",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0.35, 0.01)"),
+  list(label = "Strong prior - correct",
+       incubation_proportion = "params[2] ~ normal(0, 10)",
+       recovery_proportion = "params[3] ~ normal(0.50, 0.01)"))
+
+stan_fits_poisson <- lapply(priors_list, function(priors) {
+  poisson_model_3_params_SEIR <- create_input_for_model_block(
+    priors$incubation_proportion, priors$recovery_proportion)
+  
+  plot_label  <<- priors$label
+  stan_model  <- generate_model_text(poisson_model_3_params_SEIR)
+
+  stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
                      stan_tp, stan_model, sep = "\n")
+  
+  filename <- paste0("SEIR1232_", priors$label, ".stan")
 
-create_stan_file(stan_text, "SEIR.stan")
-
-stan_fit_poisson <- NULL
-stan_fit_poisson <- fit_stan_model(
-  stan_file = "SEIR.stan", n_constants = 3, 
-  incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000, 
-  seed = 1789833883, chains = 3, n_difeq = 4)
-
-pairs(stan_fit_poisson, pars = c("params[1]", "params[2]", "params[3]"))
+  create_stan_file(stan_text, filename)
+  
+  stan_fit_poisson <- NULL
+  stan_fit_poisson <- fit_stan_model(
+    stan_file = filename, n_constants = 3,
+    incidence_data = synthetic_incidence2, warm_up = 1000, iterations = 2000,
+    seed = 264842530, chains = 3, n_difeq = 4)
+})
 ```
 
+```{r, fig.height=4}
+
+stan_fit <- stan_fits_poisson[[1]]
+np <- nuts_params(stan_fit)
+
+mcmc_pairs(
+  stan_fit, np = np,
+  pars = c("params[1]", "params[2]", "params[3]"),
+  max_treedepth = with(np, -1 + max(Value[Parameter == "treedepth__"])),
+  grid_args = list(top = "Flat prior"))
+
+```
+
+```{r, fig.height=4}
+stan_fit <- stan_fits_poisson[[2]]
+np <- nuts_params(stan_fit)
+
+mcmc_pairs(
+  stan_fit, np = np,
+  pars = c("params[1]", "params[2]", "params[3]"),
+  max_treedepth = with(np, -1 + max(Value[Parameter == "treedepth__"])),
+  grid_args = list(top = "Regularising prior"))
+```
+
+```{r, fig.height=4}
+stan_fit <- stan_fits_poisson[[3]]
+np <- nuts_params(stan_fit)
+
+mcmc_pairs(
+  stan_fit, np = np,
+  pars = c("params[1]", "params[2]", "params[3]"),
+  max_treedepth = with(np, -1 + max(Value[Parameter == "treedepth__"])),
+  grid_args = list(top = "Strong prior - incorrect"))
+```
+
+```{r, fig.height=4}
+stan_fit <- stan_fits_poisson[[4]]
+np <- nuts_params(stan_fit)
+
+mcmc_pairs(
+  stan_fit, np = np,
+  pars = c("params[1]", "params[2]", "params[3]"),
+  max_treedepth = with(np, -1 + max(Value[Parameter == "treedepth__"])),
+  grid_args = list(top = "Strong prior - correct"))
+```
 
 # 2. REAL DATA
 
@@ -1599,8 +1686,15 @@ flu_incidence  <- flu_data %>% slice(-1) %>% pull(total)
 df1 <- flu_data %>% select(week, total) %>% slice(-1) %>% 
   mutate(type = "data",week = week - 1) %>% rename(incidence = total)
 
-flu_data_long <-  pivot_longer(flu_data, -week, names_to = "variable", "value")
-  
+flu_data_long <-  flu_data %>% slice(-1) %>% mutate(week = week - 1) %>% 
+  pivot_longer(-week, names_to = "variable", "value")
+
+age_0_4_data     <- flu_data$Age.0.4[-1]
+age_5_14_data    <- flu_data$Age.5.14[-1]
+age_15_44_data   <- flu_data$Age.15.44[-1]
+age_45_over_data <- flu_data$Age.45.over[-1]
+
+length_data <- length(age_0_4_data)
 
 g <- ggplot(flu_data_long, aes(x = week, y = value)) +
   geom_line(colour = "lightgrey") +
@@ -1902,11 +1996,53 @@ ggplot(df, aes(x = week, y = incidence, group = type)) +
 
 
 
-
 ## 2.3 SEIR AGGREGATED
 
-### 2.3.1 One parameter (Contact rate is variable, both latent period & recovery delay are 1 day)
+### 2.3.1 One parameter (Contact rate is variable)
 
+#### 2.3.1.1 Serial interval is 2 days
+
+#### 2.3.1.1.1 Normal
+
+```{r SEIR_Flu_normal_1_param_si_2, cache=TRUE}
+source('./stan_utils.R')
+
+func_params <- list(latent_period  = round(7 / 1, 10), # inverse
+                    recovery_delay = round(7 / 1, 10)) # inverse
+
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("normal")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("normal")
+initStocks  <- list(Susceptible = S0, Exposed = 0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "normal", n_params = 1)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename    <- "SEIR_23111.stan"
+
+create_stan_file(stan_text, filename)
+
+fit_2.3.1.1.1  <- fit_stan_model(
+  stan_file      = filename,
+  n_constants    = 1,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 883706661,
+  chains         = 3,
+  n_difeq        = 4)
+```
+
+```{r}
+pairs(fit_2.3.1.1.1, pars = c("params[1]", "sigma"))
+```
+
+```{r}
+stan_trace(fit_2.3.1.1.1, pars = c("params[1]", "sigma"))
+```
+#### 2.3.1.1.2 Poisson
 ```{r SEIR_Flu_poisson_1_param, cache = TRUE}
 source('./stan_utils.R')
 
@@ -1924,11 +2060,11 @@ stan_model  <- generate_stan_model(likelihood = "poisson", n_params = 1)
 stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
                      stan_tp, stan_model, sep = "\n")
 
-create_stan_file(stan_text, "SEIR.stan")
+filename <- "SEIR_23112.stan"
+create_stan_file(stan_text, filename)
 
-stan_fit_poisson <- NULL
-stan_fit_poisson <- fit_stan_model(
-  stan_file      = "SEIR.stan",
+fit_2.3.1.1.2 <- fit_stan_model(
+  stan_file      = filename,
   n_constants    = 1,
   incidence_data = flu_incidence,
   warm_up        = 2000,
@@ -1938,11 +2074,10 @@ stan_fit_poisson <- fit_stan_model(
   n_difeq        = 4)
 ```
 
-```{r}
-stan_trace(stan_fit_poisson, pars = "params[1]")
-```
 
+#### 2.3.1.2 Serial interval is 3 days
 
+#### 2.3.1.2.1 Normal
 ```{r SEIR_Flu_normal_1_param, cache=TRUE}
 source('./stan_utils.R')
 
@@ -1959,12 +2094,12 @@ stan_model  <- generate_stan_model(likelihood = "normal", n_params = 1)
 stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
                      stan_tp, stan_model, sep = "\n")
 
-create_stan_file(stan_text, "SEIR.stan")
+filename    <- "SEIR_23121.stan"
 
-create_stan_file(stan_text, "SEIR.stan")
-stan_fit_normal  <- NULL
-stan_fit_normal  <- fit_stan_model(
-  stan_file      = "SEIR.stan",
+create_stan_file(stan_text, filename)
+
+fit_2.3.1.2.1  <- fit_stan_model(
+  stan_file      = filename,
   n_constants    = 1,
   incidence_data = flu_incidence,
   warm_up        = 2000,
@@ -1972,8 +2107,47 @@ stan_fit_normal  <- fit_stan_model(
   seed           = 563156067,
   chains         = 3,
   n_difeq        = 4)
+```
 
-pairs(stan_fit_normal, pars = c("params[1]", "sigma"))
+```{r}
+pairs(fit_2.3.1.2.1, pars = c("params[1]", "sigma"))
+```
+
+```{r}
+stan_trace(fit_2.3.1.2.1, pars = c("params[1]", "sigma"))
+```
+
+#### 2.3.1.2.2 Poisson
+
+```{r SEIR_Flu_poisson_si_3_1_param, cache = TRUE}
+source('./stan_utils.R')
+
+func_params <- list(latent_period  = round(7 / 1.5, 10), # inverse
+                    recovery_delay = round(7 / 1.5, 10)) # inverse
+
+stan_fun    <- generate_stan_function("SEIR", func_params)
+stan_data   <- generate_data_block("poisson")
+stan_td     <- generate_transformed_data_block()
+stan_params <- generate_parameters_block("poisson")
+
+initStocks  <- list(Susceptible = S0, Exposed = 0, Infected = I0, Recovered = 0)
+stan_tp     <- generate_transformed_parameters("SEIR", initStocks)
+stan_model  <- generate_stan_model(likelihood = "poisson", n_params = 1)
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SEIR_23122.stan"
+create_stan_file(stan_text, filename)
+
+fit_2.3.1.2.2 <- fit_stan_model(
+  stan_file      = filename,
+  n_constants    = 1,
+  incidence_data = flu_incidence,
+  warm_up        = 2000,
+  iterations     = 4000,
+  seed           = 2034055047,
+  chains         = 3,
+  n_difeq        = 4)
 ```
 
 ```{r g_SEIR_Flu_1_param, cache = TRUE}
@@ -2004,6 +2178,41 @@ ggplot(df, aes(x = week, y = incidence, group = type)) +
   scale_colour_manual(values = c("lightgrey", "blue")) +
   theme_test()
 ```
+
+#### 2.3.1.3 Fitting graphs
+
+```{r}
+params_list <- list(
+  list(fit = fit_2.3.1.1.2,
+       source = "Poisson",
+       serial_interval = "Serial interval of 2 days"),
+    list(fit = fit_2.3.1.2.2,
+       source = "Poisson",
+       serial_interval = "Serial interval of 3 days")
+)
+
+real_data <- flu_data_long %>% filter(variable == "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- map_df(params_list, function(param_obj) {
+  fit             <- param_obj$fit
+  serial_interval <- param_obj$serial_interval
+  source          <- param_obj$source
+  posterior_df    <- as.data.frame(fit)
+  
+  mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+    colMeans()
+  
+  sim_data <- data.frame(week = 1:18, value = mean_incidences, source = source)
+  bind_rows(sim_data, real_data) %>% mutate(serial_interval = serial_interval)
+})
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  facet_wrap(~ serial_interval) +
+  theme_test()
+```
+
 
 ### Two parameters (effective contacts & latent period are variables, recovery delay is 1 day)
 
@@ -2203,7 +2412,32 @@ pairs(stan_fit_normal, pars = c("params[1]", "params[2]", "params[3]", "sigma"))
 
 ## 2.4 SEIR DISAGGREGATED
 
-```{r}
+### 2.4.1 Ten-parameter conceptual WAIFW matrix
+
+```{r, fig.height = 4, fig.width = 4, fig.align = "center"}
+conceptual_matrix <- c("B11", "B12", "B13", "B14",
+                       "B12", "B22", "B23", "B24",
+                       "B13", "B23", "B33", "B34",
+                       "B14", "B24", "B34", "B44")
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+# Conceptual matrix comprising 10 parameters
+cm_10_param <- matrix(conceptual_matrix, nrow = 4)
+colnames(cm_10_param) <- rownames(cm_10_param) <- age_groups
+WAIFW_df    <- melt(cm_10_param)
+  
+ggplot(data = WAIFW_df, 
+       aes(x = Var1, y = ordered(Var2, levels = rev(sort(unique(Var2)))))) + 
+    geom_tile(aes(fill = value), colour = "blue") +
+    geom_text(aes(label = value), colour = "white", size = 5) +
+    scale_fill_manual(values = pal_jco()(10)) +
+    theme_minimal() + 
+    labs(y ="", x = "") +
+    theme(legend.position = "none")
+```
+
+
+```{r common_params_241}
 source('./stan_utils.R')
 stan_data  <- paste(
   "data {",
@@ -2257,11 +2491,19 @@ stan_tp <- paste(
   "   }",
   "}", sep = "\n")
 
-
+stan_d <- list(n_obs    = length_data,
+              n_params = length(params), 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
 ```
 
 
-### 2.4.1 Latent period & Recovery delay are equal to 1 day
+#### 2.4.1.1 Serial interval is equal to 2 days
 
 ```{r seir_disaggregated241, cache = TRUE}
 override_consts <- list(
@@ -2272,7 +2514,7 @@ stan_fun   <- create_stan_function(model_file, "SEIR_extended", pars = params,
                                    override.consts = override_consts)
 
 stan_model_text <- c(
-"  params ~ normal(0, 0.0003)",
+"  params ~ normal(0, 0.00025)",
 "  y1     ~ poisson(incidence1)",
 "  y2     ~ poisson(incidence2)",
 "  y3     ~ poisson(incidence3)",
@@ -2286,27 +2528,17 @@ stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
 filename <- "SEIR_241.stan"
 create_stan_file(stan_text, filename)
 
-stan_d = list(n_obs    = length(flu_data$Age.0.4),
-              n_params = 10, 
-              n_difeq  = 16, # number of differential equations
-              y1       = flu_data$Age.0.4,
-              y2       = flu_data$Age.5.14,
-              y3       = flu_data$Age.15.44,
-              y4       = flu_data$Age.45.over,
-              t0       = 0,
-              ts       = 1:length(flu_data$Age.0.4))
-
 # Test / debug the model:
 test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
 stan_fit_2.4 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                 iter   = 2000, cores  = 3, seed = 1099652217, refresh = 0)
+                 iter   = 2000, cores  = 3, seed = 1099652217, refresh = 5)
 ```
 
 
-```{r g_comparison_SEIR_dis_1_day}
+```{r g_comparison_SEIR_dis_1_day, fig.height = 4}
 posterior_df <- as.data.frame(stan_fit_2.4)
 
 mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
@@ -2319,7 +2551,7 @@ age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
 sim_data <- map_df(age_groups, function(ag) {
   i <- which(ag == age_groups)
   regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(week = 1:19, value = mean_incidences[grepl(regex, names_mi)], 
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
                             variable = ag)
 }) %>% mutate(source = "sim data")
 
@@ -2335,17 +2567,20 @@ ggplot(comparison_data, aes(x = week, y = value)) +
   theme_test()
 ```
 
-```{r}
+```{r rmse_seir_disaggregated_si_2}
 age_groups <- unique(comparison_data$variable)
-map_dbl(age_groups, function(ag) {
+errors <- map_dbl(age_groups, function(ag) {
   ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
   ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
   ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
   RMSE(ag_sim, ag_act)
 })
+
+rmse1 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "2")
 ```
 
-```{r, fig.height=3}
+```{r r_noughts_SEIR1, fig.height=3}
 source('./graphs.R')
 samples       <- rstan::extract(stan_fit_2.4)
 param_samples <- samples$params
@@ -2368,12 +2603,13 @@ r_noughts <- sapply(1:nrow(param_samples), function(i) {
   max(eigensystem$values)
 })
 
-specs_list <- list(x_pos = 1.36, ypos_mean = 100, ypos_median = 93, 
-                   text_size = 2, ypos_interval = 86, 
+specs_list <- list(x_pos = 1.44, ypos_mean = 82, ypos_median = 75, 
+                   text_size = 2, ypos_interval = 67, 
                    title = "Serial interval = 2", xlabel = "")
 
 r1 <- draw_density(r_noughts, specs_list)
 ```
+
 ```{r}
 source('./graphs.R')
 age_groups <- c("0-4", "5-14", "15-64", "65+")
@@ -2392,7 +2628,7 @@ WAIFW1 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 2 days")
 
 
 
-### 2.4.2 Latent period & Recovery delay are equal to 1.5 days
+#### 2.4.1.2 Serial interval is equal to 3 days
 
 ```{r seir_disaggregated242, cache = TRUE}
 override_consts <- list(
@@ -2417,26 +2653,16 @@ stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
 filename <- "SEIR_242.stan"
 create_stan_file(stan_text, filename)
 
-stan_d = list(n_obs    = length(flu_data$Age.0.4),
-              n_params = 10, 
-              n_difeq  = 16, # number of differential equations
-              y1       = flu_data$Age.0.4,
-              y2       = flu_data$Age.5.14,
-              y3       = flu_data$Age.15.44,
-              y4       = flu_data$Age.45.over,
-              t0       = 0,
-              ts       = 1:length(flu_data$Age.0.4))
-
 # Test / debug the model:
 test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
 stan_fit_2.4.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                 iter   = 2000, cores  = 3, seed = 1742552100, refresh = 0)
+                 iter   = 2000, cores  = 3, seed = 1742552100, refresh = 5)
 ```
 
-```{r g_comparison_SEIR_dis_1_5_days}
+```{r g_comparison_SEIR_dis_1_5_days, fig.height = 4}
 posterior_df <- as.data.frame(stan_fit_2.4.2)
 
 mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
@@ -2449,7 +2675,7 @@ age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
 sim_data <- map_df(age_groups, function(ag) {
   i <- which(ag == age_groups)
   regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(week = 1:19, value = mean_incidences[grepl(regex, names_mi)], 
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
                             variable = ag)
 }) %>% mutate(source = "sim data")
 
@@ -2465,14 +2691,17 @@ ggplot(comparison_data, aes(x = week, y = value)) +
   theme_test()
 ```
 
-```{r}
+```{r rmse_seir_disaggregated_si_3}
 age_groups <- unique(comparison_data$variable)
-map_dbl(age_groups, function(ag) {
+errors <- map_dbl(age_groups, function(ag) {
   ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
   ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
   ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
   RMSE(ag_sim, ag_act)
 })
+
+rmse2 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "3")
 ```
 
 ```{r, fig.height=3}
@@ -2499,8 +2728,8 @@ r_noughts <- sapply(1:nrow(param_samples), function(i) {
   max(eigensystem$values)
 })
 
-specs_list <- list(x_pos = 1.78, ypos_mean = 18, ypos_median = 17, 
-                   text_size = 2, ypos_interval = 16, 
+specs_list <- list(x_pos = 1.99, ypos_mean = 25, ypos_median = 23, 
+                   text_size = 2, ypos_interval = 21, 
                    title = "Serial interval = 3", xlabel = "")
 
 r2 <- draw_density(r_noughts, specs_list)
@@ -2523,7 +2752,7 @@ WAIFW2 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 3 days")
 ```
 
 
-### 2.4.3 Latent period & Recovery delay are equal to 2 days
+#### 2.4.1.3 Serial interval is equal to 4 days
 
 ```{r seir_disaggregated243, cache = TRUE}
 override_consts <- list(
@@ -2534,7 +2763,7 @@ stan_fun   <- create_stan_function(model_file, "SEIR_extended", pars = params,
                                    override.consts = override_consts)
 
 stan_model_text <- c(
-"  params ~ normal(0, 0.000040)",
+"  params ~ normal(0, 0.0000150)",
 "  y1     ~ poisson(incidence1)",
 "  y2     ~ poisson(incidence2)",
 "  y3     ~ poisson(incidence3)",
@@ -2548,16 +2777,6 @@ stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
 filename <- "SEIR_243.stan"
 create_stan_file(stan_text, filename)
 
-stan_d = list(n_obs    = length(flu_data$Age.0.4),
-              n_params = 10, 
-              n_difeq  = 16, # number of differential equations
-              y1       = flu_data$Age.0.4,
-              y2       = flu_data$Age.5.14,
-              y3       = flu_data$Age.15.44,
-              y4       = flu_data$Age.45.over,
-              t0       = 0,
-              ts       = 1:length(flu_data$Age.0.4))
-
 # Test / debug the model:
 test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
@@ -2567,7 +2786,7 @@ stan_fit_2.4.3 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
                  iter   = 2000, cores  = 3, seed = 1250266639, refresh = 5)
 ```
 
-```{r g_comparison_SEIR_dis_2_days}
+```{r g_comparison_SEIR_dis_2_days, fig.height = 4}
 posterior_df <- as.data.frame(stan_fit_2.4.3)
 
 mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
@@ -2580,7 +2799,7 @@ age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
 sim_data <- map_df(age_groups, function(ag) {
   i <- which(ag == age_groups)
   regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(week = 1:19, value = mean_incidences[grepl(regex, names_mi)], 
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
                             variable = ag)
 }) %>% mutate(source = "sim data")
 
@@ -2597,14 +2816,17 @@ ggplot(comparison_data, aes(x = week, y = value)) +
 ```
 
 
-```{r}
+```{r rmse_seir_disaggregated_si_4}
 age_groups <- unique(comparison_data$variable)
-map_dbl(age_groups, function(ag) {
+errors <- map_dbl(age_groups, function(ag) {
   ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
   ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
   ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
   RMSE(ag_sim, ag_act)
 })
+
+rmse3 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "4")
 ```
 
 ```{r, fig.height=3}
@@ -2631,8 +2853,8 @@ r_noughts <- sapply(1:nrow(param_samples), function(i) {
   max(eigensystem$values)
 })
 
-specs_list <- list(x_pos = 1.349, ypos_mean = 70, ypos_median = 65, 
-                   text_size = 2, ypos_interval = 60, 
+specs_list <- list(x_pos = 0.861, ypos_mean = 150, ypos_median = 140, 
+                   text_size = 2, ypos_interval = 125, 
                    title = "Serial interval = 4", xlabel = "")
 
 r3 <- draw_density(r_noughts, specs_list)
@@ -2654,16 +2876,916 @@ colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
 WAIFW3 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 4 days")
 ```
 
-## 2.4.4 WAIFW matrices
+#### 2.4.1.4 RMSPE
+
+```{r, fig.height = 3.5}
+rmse_df <- bind_rows(rmse1, rmse2, rmse3)
+
+ggplot(rmse_df, aes(y = as.factor(serial_interval), x = rmse)) +
+  geom_lollipop(point.colour = "steelblue", point.size = 2, horizontal = TRUE) +
+  facet_wrap(~ age_group, nrow = 2) +
+  theme_minimal() +
+  theme(panel.grid.major.y=element_blank(),
+        panel.grid.minor=element_blank()) +
+  labs(y = "Serial interval [days]")
+```
+
+#### 2.4.1.5 WAIFW matrices
 
 ```{r, fig.height=2.5}
 grid.arrange(WAIFW1, WAIFW2, WAIFW3, nrow = 1)
 ```
 
-
-## 2.4.5  $R_{0}$ estimation
+\newpage
+#### 2.4.1.6  $R_{0}$ estimation
 
 ```{r, fig.height = 3}
+grid.arrange(r1, r2, r3, nrow = 1)
+```
+
+### 2.4.2 Four-parameter conceptual WAIFW matrix
+
+```{r, fig.height = 4, fig.width = 4, fig.align = "center"}
+conceptual_matrix <- c("B11", "B11", "B33", "B44",
+                       "B11", "B22", "B33", "B44",
+                       "B33", "B33", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
+
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+# Conceptual matrix comprising 4 parameters
+cm_10_param <- matrix(conceptual_matrix, nrow = 4)
+colnames(cm_10_param) <- rownames(cm_10_param) <- age_groups
+WAIFW_df    <- melt(cm_10_param)
+  
+ggplot(data = WAIFW_df, 
+       aes(x = Var1, y = ordered(Var2, levels = rev(sort(unique(Var2)))))) + 
+    geom_tile(aes(fill = value), colour = "blue") +
+    geom_text(aes(label = value), colour = "white", size = 5) +
+    scale_fill_manual(values = pal_jco()(4)) +
+    theme_minimal() + 
+    labs(y ="", x = "") +
+    theme(legend.position = "none")
+```
+
+```{r}
+source('./stan_utils.R')
+stan_data  <- paste(
+  "data {",
+  "  int<lower = 1> n_obs; // Number of weeks sampled",
+  "  int<lower = 1> n_params; // Number of model parameters",
+  "  int<lower = 1> n_difeq; // Number of differential equations in the system",
+  "  int y1[n_obs];",
+  "  int y2[n_obs];",
+  "  int y3[n_obs];",
+  "  int y4[n_obs];",
+  "  real t0; // Initial time point (zero)",
+  "  real ts[n_obs]; // Time points that were sampled",
+  "}", sep = "\n")
+
+stan_td     <- generate_transformed_data_block()
+
+stan_params <- generate_parameters_block("poisson")
+
+mdl_SEIR_4_params <- "./deterministic_models/4_cohorts_SEIR_four_params.stmx"
+
+mdl <- read_xmile(mdl_SEIR_4_params)
+constant_names <- map_chr(mdl$description$constants, "name")
+params <- constant_names[!constant_names%in% c("latent_period", 
+                                               "recovery_time")]
+
+counter <- 0
+
+stan_init_stocks <- sapply(mdl$description$levels, function(level) {
+  counter <<- counter + 1
+  paste0("  y0[", counter, "] = ", level$initValue, ";")
+}) %>% paste(collapse = "\n")
+
+stan_tp <- paste(
+  "transformed parameters{",
+  "  real y_hat[n_obs, n_difeq]; // Output from the ODE solver",
+  "  real y0[n_difeq]; // Initial conditions",
+  "  real incidence1[n_obs];",
+  "  real incidence2[n_obs];",
+  "  real incidence3[n_obs];",
+  "  real incidence4[n_obs];",
+  stan_init_stocks,
+  "  y_hat = integrate_ode_rk45(SEIR_extended, y0, t0, ts, params, x_r, x_i);",
+  "  incidence1[1] =  y_hat[1, 3] + y_hat[1, 4] - y0[3] - y0[4];",
+  "  incidence2[1] =  y_hat[1, 7] + y_hat[1, 8] - y0[7] - y0[8];",
+  "  incidence3[1] =  y_hat[1, 11] + y_hat[1, 12] - y0[11] - y0[12];",
+  "  incidence4[1] =  y_hat[1, 15] + y_hat[1, 16] - y0[15] - y0[16];",
+  "  for (i in 1:n_obs-1) {",
+  "    incidence1[i + 1] = y_hat[i + 1, 3] + y_hat[i + 1, 4] - y_hat[i, 3] - y_hat[i, 4] + 0.00001;",
+  "    incidence2[i + 1] = y_hat[i + 1, 7] + y_hat[i + 1, 8] - y_hat[i, 7] - y_hat[i, 8] + 0.00001;",
+  "    incidence3[i + 1] = y_hat[i + 1, 11] + y_hat[i + 1, 12] - y_hat[i, 11] - y_hat[i, 12] + 0.00001;",
+  "    incidence4[i + 1] = y_hat[i + 1, 15] + y_hat[i + 1, 16] - y_hat[i, 15] - y_hat[i, 16] + 0.00001;",
+  "   }",
+  "}", sep = "\n")
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(params), 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+```
+
+\newpage
+#### 2.4.2.1 Serial interval is equal to 2 days
+
+```{r, cache = TRUE}
+override_consts <- list(
+  list(name = "recovery_time", value = round(1 / 7, 10)),
+  list(name = "latent_period", value = round(1 / 7, 10)))
+
+stan_fun   <- create_stan_function(mdl_SEIR_4_params, "SEIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.00010)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SEIR_2421.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.4.2.1 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                         iter   = 2000, cores  = 3, seed = 283547013, 
+                         refresh = 5)
+```
+
+```{r g_comparison_SEIR_dis_m2_1_days, fig.height = 4}
+posterior_df <- as.data.frame(stan_fit_2.4.2.1)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r rmse_seir_disaggregated_m2_si_2}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse1 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "2")
+```
+
+#### 2.4.2.2 Serial interval is equal to 3 days
+
+```{r, cache = TRUE}
+override_consts <- list(
+  list(name = "recovery_time", value = round(1.5 / 7, 10)),
+  list(name = "latent_period", value = round(1.5 / 7, 10)))
+
+stan_fun   <- create_stan_function(mdl_SEIR_4_params, "SEIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.00010)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SEIR_2422.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.4.2.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                         iter   = 2000, cores  = 3, seed = 283547013, 
+                         refresh = 5)
+```
+
+```{r g_comparison_SEIR_dis_m2_1.5_days, fig.height = 4}
+posterior_df <- as.data.frame(stan_fit_2.4.2.2)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r rmse_seir_disaggregated_m2_si_3}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse2 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "3")
+```
+\newpage
+
+#### 2.4.2.3 Serial interval is equal to 4 days
+
+```{r, cache = TRUE}
+override_consts <- list(
+  list(name = "recovery_time", value = round(2 / 7, 10)),
+  list(name = "latent_period", value = round(2 / 7, 10)))
+
+stan_fun   <- create_stan_function(mdl_SEIR_4_params, "SEIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.0000100)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SEIR_2423.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.4.2.3 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                         iter   = 2000, cores  = 3, seed = 283547013, 
+                         refresh = 5)
+```
+
+```{r g_comparison_SEIR_dis_m2_si_4, fig.height = 4}
+posterior_df <- as.data.frame(stan_fit_2.4.2.3)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+```{r rmse_sEir_disaggregated_m_2_si_4}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse3 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "4")
+```
+
+#### 2.4.2.4 RMSE
+
+```{r, fig.height = 3.5}
+rmse_df <- bind_rows(rmse1, rmse2, rmse3)
+
+ggplot(rmse_df, aes(y = as.factor(serial_interval), x = rmse)) +
+  geom_lollipop(point.colour = "steelblue", point.size = 2, horizontal = TRUE) +
+  facet_wrap(~ age_group, nrow = 2) +
+  theme_minimal() +
+  theme(panel.grid.major.y=element_blank(),
+        panel.grid.minor=element_blank()) +
+  labs(y = "Serial interval [days]")
+  
+```
+
+\newpage
+
+#### 2.4.2.5 WAIFW matrices
+
+```{r, fig.height = 2.5}
+source('./graphs.R')
+
+fits <- list(stan_fit_2.4.2.1, stan_fit_2.4.2.2, stan_fit_2.4.2.3)
+
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+titles <- c("Serial interval = 2 days", "Serial interval = 3 days", 
+            "Serial interval = 4 days")
+
+g_WAIFW <- map2(fits, titles, function(fit, title) {
+  
+  samples       <- rstan::extract(fit)
+  param_samples <- samples$params
+  colnames(param_samples) <- params
+
+  param_medians <- apply(param_samples, 2, function(col) median(col))
+  
+  WAIFW_medians <- sapply(
+    conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
+    matrix(nrow = 4, byrow = TRUE)
+  
+  normalised_WAIFW <- WAIFW_medians * 1e5
+  colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+  
+  draw_WAIFW(normalised_WAIFW, title)
+})
+
+grid.arrange(g_WAIFW[[1]], g_WAIFW[[2]], g_WAIFW[[3]], nrow = 1)
+```
+
+
+#### 2.4.2.6  $R_{0}$ estimation
+
+```{r r_noughts_2426}
+pop_sizes <- c(949, 1690, 3467, 1894)
+
+specs_list1 <- list(x_pos = 1.40, ypos_mean = 100, ypos_median = 93, 
+                   text_size = 2, ypos_interval = 86, 
+                   title = "Serial interval = 2", xlabel = "")
+
+specs_list2 <- list(x_pos = 1.815, ypos_mean = 42, ypos_median = 38, 
+                   text_size = 2, ypos_interval = 34, 
+                   title = "Serial interval = 3", xlabel = "")
+
+specs_list3 <- list(x_pos = 1.141, ypos_mean = 150, ypos_median = 144, 
+                   text_size = 2, ypos_interval = 138, 
+                   title = "Serial interval = 4", xlabel = "")
+
+specs <- list(specs_list1, specs_list2, specs_list3)
+
+graph_params <- list(
+  list(fit = stan_fit_2.4.2.1,
+       delay = 1 / 7,
+       specs = specs_list1),
+    list(fit = stan_fit_2.4.2.2,
+       delay = 1.5 / 7,
+       specs = specs_list2),
+      list(fit = stan_fit_2.4.2.3,
+       delay = 2 / 7,
+       specs = specs_list3)
+)
+
+r_nought_graphs <- purrr::map(graph_params, function(param_obj) {
+  fit        <- param_obj$fit
+  delay      <- param_obj$delay
+  specs_list <- param_obj$specs
+  
+  samples <- rstan::extract(fit)
+  param_samples <- samples$params
+  colnames(param_samples) <- params
+  r_noughts <- sapply(1:nrow(param_samples), function(i) {
+    row <- param_samples[i, ]
+    
+    WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+      matrix(nrow = 4, byrow = TRUE)
+    
+    next_gen_matrix <- WAIFW * delay * pop_sizes
+    eigensystem     <- eigen(next_gen_matrix)
+  
+    max(eigensystem$values)
+  })
+  
+  draw_density(r_noughts, specs_list)
+})
+
+grid.arrange(r_nought_graphs[[1]], r_nought_graphs[[2]],r_nought_graphs[[3]], nrow = 1)
+```
+
+# 2.5 SIR DISAGGREGATED
+
+```{r}
+source('./stan_utils.R')
+
+stan_data  <- paste(
+  "data {",
+  "  int<lower = 1> n_obs; // Number of weeks sampled",
+  "  int<lower = 1> n_params; // Number of model parameters",
+  "  int<lower = 1> n_difeq; // Number of differential equations in the system",
+  "  int y1[n_obs];",
+  "  int y2[n_obs];",
+  "  int y3[n_obs];",
+  "  int y4[n_obs];",
+  "  real t0; // Initial time point (zero)",
+  "  real ts[n_obs]; // Time points that were sampled",
+  "}", sep = "\n")
+
+stan_td     <- generate_transformed_data_block()
+
+stan_params <- generate_parameters_block("poisson")
+
+model_file <- "./deterministic_models/m1_SIR_4_cohorts.stmx"
+mdl <- read_xmile(model_file)
+constant_names <- map_chr(mdl$description$constants, "name")
+params <- constant_names[!constant_names%in% c("recovery_delay")]
+
+counter <- 0
+
+stan_init_stocks <- sapply(mdl$description$levels, function(level) {
+  counter <<- counter + 1
+  paste0("  y0[", counter, "] = ", level$initValue, ";")
+}) %>% paste(collapse = "\n")
+
+stan_tp <- paste(
+  "transformed parameters{",
+  "  real y_hat[n_obs, n_difeq]; // Output from the ODE solver",
+  "  real y0[n_difeq]; // Initial conditions",
+  "  real incidence1[n_obs];",
+  "  real incidence2[n_obs];",
+  "  real incidence3[n_obs];",
+  "  real incidence4[n_obs];",
+  stan_init_stocks,
+  "  y_hat = integrate_ode_rk45(SIR_extended, y0, t0, ts, params, x_r, x_i);",
+  "  incidence1[1] =  y_hat[1, 2] + y_hat[1, 3] - y0[2] - y0[3];",
+  "  incidence2[1] =  y_hat[1, 5] + y_hat[1, 6] - y0[5] - y0[6];",
+  "  incidence3[1] =  y_hat[1, 8] + y_hat[1, 9] - y0[8] - y0[9];",
+  "  incidence4[1] =  y_hat[1, 11] + y_hat[1, 12] - y0[11] - y0[12];",
+  "  for (i in 1:n_obs-1) {",
+  "    incidence1[i + 1] = y_hat[i + 1, 2] + y_hat[i + 1, 3] - y_hat[i, 2] - y_hat[i, 3] + 0.000001;",
+  "    incidence2[i + 1] = y_hat[i + 1, 5] + y_hat[i + 1, 6] - y_hat[i, 5] - y_hat[i, 6] + 0.000001;",
+  "    incidence3[i + 1] = y_hat[i + 1, 8] + y_hat[i + 1, 9] - y_hat[i, 8] - y_hat[i, 9] + 0.000001;",
+  "    incidence4[i + 1] = y_hat[i + 1, 11] + y_hat[i + 1, 12] - y_hat[i, 11] - y_hat[i, 12] + 0.000001;",
+  "   }",
+  "}", sep = "\n")
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(params), 
+              n_difeq  = 12, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+```
+
+### 2.5.1 Serial interval is equal to 2 days
+```{r sir_disaggregated_2_days, cache = TRUE}
+override_consts <- list(list(name = "recovery_delay", value = round(1 / 7, 10)))
+
+stan_fun   <- create_stan_function(model_file, "SIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.005)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SIR_251.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.5.1 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                 iter   = 2000, cores  = 3, seed = 2015556751, refresh = 5)
+```
+
+
+```{r g_comparison_SIR_dis_1_days}
+posterior_df <- as.data.frame(stan_fit_2.5.1)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r rmse_sir_disaggregated_si_2}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse1 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "2")
+```
+
+```{r, fig.height=3}
+source('./graphs.R')
+samples       <- rstan::extract(stan_fit_2.5.1)
+param_samples <- samples$params
+colnames(param_samples) <- params
+
+conceptual_matrix <- c("B11", "B11", "B33", "B44",
+                       "B11", "B22", "B33", "B44",
+                       "B33", "B33", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
+
+pop_sizes <- c(949, 1690, 3467, 1894)
+
+r_noughts <- sapply(1:nrow(param_samples), function(i) {
+  row <- param_samples[i, ]
+  WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+  matrix(nrow = 4, byrow = TRUE)
+  next_gen_matrix <- WAIFW * (1 / 7) * pop_sizes
+  eigensystem <- eigen(next_gen_matrix)
+  max(eigensystem$values)
+})
+
+specs_list <- list(x_pos = 1.164, ypos_mean = 200, ypos_median = 193, 
+                   text_size = 2, ypos_interval = 186, 
+                   title = "Serial interval = 2", xlabel = "")
+
+r1 <- draw_density(r_noughts, specs_list)
+```
+
+```{r}
+source('./graphs.R')
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+param_medians <- apply(param_samples, 2, function(col) median(col))
+
+WAIFW_medians <- sapply(conceptual_matrix,
+                        function(Bij, row) row[[Bij]], row = param_medians) %>%
+  matrix(nrow = 4, byrow = TRUE)
+
+normalised_WAIFW <- WAIFW_medians * 1e5
+colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+
+WAIFW1 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 2 days")
+```
+
+### 2.5.2 Serial interval is equal to 3 days
+
+```{r sir_disaggregated_3_days, cache = TRUE}
+override_consts <- list(list(name = "recovery_delay", value = round(1.5 / 7, 10)))
+
+stan_fun   <- create_stan_function(model_file, "SIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.005)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SIR_252.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.5.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                 iter   = 2000, cores  = 3, seed = 1745931186, refresh = 5)
+```
+
+```{r g_comparison_SIR_dis_1.5_days}
+posterior_df <- as.data.frame(stan_fit_2.5.2)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r rmse_sir_disaggregated_si_3}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse2 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "3")
+```
+
+```{r, fig.height=3}
+source('./graphs.R')
+samples       <- rstan::extract(stan_fit_2.5.2)
+param_samples <- samples$params
+colnames(param_samples) <- params
+
+conceptual_matrix <- c("B11", "B11", "B33", "B44",
+                       "B11", "B22", "B33", "B44",
+                       "B33", "B33", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
+
+pop_sizes <- c(949, 1690, 3467, 1894)
+
+r_noughts <- sapply(1:nrow(param_samples), function(i) {
+  row <- param_samples[i, ]
+  WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+  matrix(nrow = 4, byrow = TRUE)
+  next_gen_matrix <- WAIFW * (1 / 7) * pop_sizes
+  eigensystem <- eigen(next_gen_matrix)
+  max(eigensystem$values)
+})
+
+specs_list <- list(x_pos = 0.864, ypos_mean = 180, ypos_median = 173, 
+                   text_size = 2, ypos_interval = 166, 
+                   title = "Serial interval = 3", xlabel = "")
+
+r2 <- draw_density(r_noughts, specs_list)
+```
+
+```{r}
+source('./graphs.R')
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+param_medians <- apply(param_samples, 2, function(col) median(col))
+
+WAIFW_medians <- sapply(conceptual_matrix,
+                        function(Bij, row) row[[Bij]], row = param_medians) %>%
+  matrix(nrow = 4, byrow = TRUE)
+
+normalised_WAIFW <- WAIFW_medians * 1e5
+colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+
+WAIFW2 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 3 days")
+```
+
+### 2.5.3 Serial interval is equal to 4 days
+```{r sir_disaggregated, cache = TRUE}
+override_consts <- list(list(name = "recovery_delay", value = round(2 / 7, 10)))
+
+stan_fun   <- create_stan_function(model_file, "SIR_extended", pars = params,
+                                   override.consts = override_consts)
+
+stan_model_text <- c(
+"  params ~ normal(0, 0.005)",
+"  y1     ~ poisson(incidence1)",
+"  y2     ~ poisson(incidence2)",
+"  y3     ~ poisson(incidence3)",
+"  y4     ~ poisson(incidence4)"
+)
+stan_model  <- generate_model_text(stan_model_text)
+
+stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
+                     stan_tp, stan_model, sep = "\n")
+
+filename <- "SIR_253.stan"
+create_stan_file(stan_text, filename)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.5 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                 iter   = 2000, cores  = 3, seed = 1250266639, refresh = 5)
+```
+
+
+```{r g_comparison_SIR_dis_2_days}
+posterior_df <- as.data.frame(stan_fit_2.5)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:18, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- flu_data_long %>% filter(variable != "total") %>% 
+  mutate(source = "real data")
+
+comparison_data <- bind_rows(sim_data, real_data)
+
+ggplot(comparison_data, aes(x = week, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r rmse_sir_disaggregated_si_4}
+age_groups <- unique(comparison_data$variable)
+errors <- map_dbl(age_groups, function(ag) {
+  ag_data <- comparison_data %>% filter(variable == ag) %>% arrange(week)
+  ag_sim  <- ag_data %>% filter(source == "sim data") %>% pull(value)
+  ag_act  <- ag_data %>% filter(source == "real data") %>% pull(value)
+  RMSE(ag_sim, ag_act)
+})
+
+rmse3 <- data.frame(stringsAsFactors = F, age_group = age_groups,
+                    rmse = errors, serial_interval = "4")
+```
+
+```{r, fig.height=3}
+source('./graphs.R')
+samples       <- rstan::extract(stan_fit_2.5)
+param_samples <- samples$params
+colnames(param_samples) <- params
+
+conceptual_matrix <- c("B11", "B11", "B33", "B44",
+                       "B11", "B22", "B33", "B44",
+                       "B33", "B33", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
+
+pop_sizes <- c(949, 1690, 3467, 1894)
+
+r_noughts <- sapply(1:nrow(param_samples), function(i) {
+  row <- param_samples[i, ]
+  WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+  matrix(nrow = 4, byrow = TRUE)
+  next_gen_matrix <- WAIFW * (1 / 7) * pop_sizes
+  eigensystem <- eigen(next_gen_matrix)
+  max(eigensystem$values)
+})
+
+specs_list <- list(x_pos = 0.723, ypos_mean = 200, ypos_median = 193, 
+                   text_size = 2, ypos_interval = 186, 
+                   title = "Serial interval = 4", xlabel = "")
+
+r3 <- draw_density(r_noughts, specs_list)
+```
+
+```{r}
+source('./graphs.R')
+age_groups <- c("0-4", "5-14", "15-64", "65+")
+
+param_medians <- apply(param_samples, 2, function(col) median(col))
+
+WAIFW_medians <- sapply(conceptual_matrix,
+                        function(Bij, row) row[[Bij]], row = param_medians) %>%
+  matrix(nrow = 4, byrow = TRUE)
+
+normalised_WAIFW <- WAIFW_medians * 1e5
+colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+
+WAIFW3 <- draw_WAIFW(normalised_WAIFW, "Serial interval = 4 days")
+```
+
+### 2.5.4 RMSPE
+
+```{r, fig.height = 3.5}
+rmse_df <- bind_rows(rmse1, rmse2, rmse3)
+
+ggplot(rmse_df, aes(y = as.factor(serial_interval), x = rmse)) +
+  geom_lollipop(point.colour = "steelblue", point.size = 2, horizontal = TRUE) +
+  facet_wrap(~ age_group, nrow = 2) +
+  theme_minimal() +
+  theme(panel.grid.major.y=element_blank(),
+        panel.grid.minor=element_blank()) +
+  labs(y = "Serial interval [days]")
+  
+```
+
+### 2.5.5 WAIFW matrices
+
+```{r, fig.height=2.5}
+grid.arrange(WAIFW1, WAIFW2, WAIFW3, nrow = 1)
+```
+
+### 2.5.6  $R_{0}$ estimation
+
+```{r}
 grid.arrange(r1, r2, r3, nrow = 1)
 ```
 
