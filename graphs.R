@@ -114,8 +114,8 @@ draw_density <- function(data_vector, g_params) {
 
 draw_WAIFW <- function(WAIFW, subtitle) {
   library(reshape2)
-  
-  WAIFW_df <- melt(normalised_WAIFW)
+
+  WAIFW_df <- melt(WAIFW)
   
   ggplot(data = WAIFW_df, aes(x=Var1, 
                               y = ordered(Var2, levels = rev(sort(unique(Var2)))), 

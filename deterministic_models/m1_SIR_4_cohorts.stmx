@@ -1,0 +1,809 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0" xmlns:isee="http://iseesystems.com/XMILE">
+	<header>
+		<smile version="1.0" namespace="std, isee"/>
+		<name>m1_SIR_4_cohorts</name>
+		<uuid>c8c6a51a-9294-4cde-b9a5-f19981df292e</uuid>
+		<vendor>isee systems, inc.</vendor>
+		<product version="1.6.2" isee:build_number="1445" isee:saved_by_v1="true" lang="en">Stella Architect</product>
+	</header>
+	<sim_specs isee:simulation_delay="0.115385" method="Euler" time_units="Months" isee:instantaneous_flows="false">
+		<start>1</start>
+		<stop>13</stop>
+		<dt reciprocal="true">4</dt>
+	</sim_specs>
+	<isee:prefs show_module_prefix="true" live_update_on_drag="true" show_restore_buttons="false" layer="model" saved_runs="5" keep="false" rifp="true"/>
+	<isee:multiplayer_settings include_chat="true" allow_observers="false" advance_time_increment="1" observer_start_page="home_page" enabled="false"/>
+	<isee:time_formats default_format="Builtin">
+		<isee:time_format name="Builtin" type="adaptive"/>
+	</isee:time_formats>
+	<default_format/>
+	<model_units/>
+	<model>
+		<variables>
+			<stock name="S1">
+				<eqn>949</eqn>
+				<outflow>IR1</outflow>
+			</stock>
+			<stock name="I1">
+				<eqn>0</eqn>
+				<inflow>IR1</inflow>
+				<outflow>RR1</outflow>
+			</stock>
+			<stock name="R1">
+				<eqn>0</eqn>
+				<inflow>RR1</inflow>
+			</stock>
+			<flow name="IR1">
+				<eqn>S1 * (B11*I1+B12*I2+B13*I3+B14*I4)</eqn>
+			</flow>
+			<flow name="RR1">
+				<eqn>I1 / recovery_delay</eqn>
+			</flow>
+			<aux name="recovery delay">
+				<eqn>0.14</eqn>
+			</aux>
+			<stock name="S2">
+				<eqn>1690</eqn>
+				<outflow>IR2</outflow>
+			</stock>
+			<stock name="I2">
+				<eqn>0</eqn>
+				<inflow>IR2</inflow>
+				<outflow>RR2</outflow>
+			</stock>
+			<stock name="R2">
+				<eqn>0</eqn>
+				<inflow>RR2</inflow>
+			</stock>
+			<flow name="IR2">
+				<eqn>S2 * (B21*I1+B22*I2+B23*I3+B24*I4)</eqn>
+			</flow>
+			<flow name="RR2">
+				<eqn>I2 / recovery_delay</eqn>
+			</flow>
+			<stock name="S3">
+				<eqn>3466</eqn>
+				<outflow>IR3</outflow>
+			</stock>
+			<stock name="I3">
+				<eqn>1</eqn>
+				<inflow>IR3</inflow>
+				<outflow>RR3</outflow>
+			</stock>
+			<stock name="R3">
+				<eqn>0</eqn>
+				<inflow>RR3</inflow>
+			</stock>
+			<flow name="IR3">
+				<eqn>S3 * (B31*I1+B32*I2+B33*I3+B34*I4)</eqn>
+			</flow>
+			<flow name="RR3">
+				<eqn>I3 / recovery_delay</eqn>
+			</flow>
+			<stock name="S4">
+				<eqn>1893</eqn>
+				<outflow>IR4</outflow>
+			</stock>
+			<stock name="I4">
+				<eqn>1</eqn>
+				<inflow>IR4</inflow>
+				<outflow>RR4</outflow>
+			</stock>
+			<stock name="R4">
+				<eqn>0</eqn>
+				<inflow>RR4</inflow>
+			</stock>
+			<flow name="IR4">
+				<eqn>S4 * (B41*I1+B42*I2+B43*I3+B44*I4)</eqn>
+			</flow>
+			<flow name="RR4">
+				<eqn>I4 / recovery_delay</eqn>
+			</flow>
+			<aux name="B11">
+				<eqn>0</eqn>
+			</aux>
+			<aux name="B12">
+				<eqn>B11</eqn>
+			</aux>
+			<aux name="B13">
+				<eqn>B33</eqn>
+			</aux>
+			<aux name="B14">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B21">
+				<eqn>B11</eqn>
+			</aux>
+			<aux name="B22">
+				<eqn>0</eqn>
+			</aux>
+			<aux name="B23">
+				<eqn>B33</eqn>
+			</aux>
+			<aux name="B24">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B31">
+				<eqn>B33</eqn>
+			</aux>
+			<aux name="B32">
+				<eqn>B33</eqn>
+			</aux>
+			<aux name="B33">
+				<eqn>0</eqn>
+			</aux>
+			<aux name="B34">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B41">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B42">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B43">
+				<eqn>B44</eqn>
+			</aux>
+			<aux name="B44">
+				<eqn>0</eqn>
+			</aux>
+			<isee:dependencies>
+				<var name="IR1">
+					<in>S1</in>
+					<in>I2</in>
+					<in>I1</in>
+					<in>I4</in>
+					<in>I3</in>
+					<in>B11</in>
+					<in>B12</in>
+					<in>B13</in>
+					<in>B14</in>
+				</var>
+				<var name="RR1">
+					<in>I1</in>
+					<in>recovery_delay</in>
+				</var>
+				<var name="IR2">
+					<in>S2</in>
+					<in>I2</in>
+					<in>I1</in>
+					<in>I4</in>
+					<in>I3</in>
+					<in>B23</in>
+					<in>B24</in>
+					<in>B21</in>
+					<in>B22</in>
+				</var>
+				<var name="RR2">
+					<in>I2</in>
+					<in>recovery_delay</in>
+				</var>
+				<var name="IR3">
+					<in>S3</in>
+					<in>I1</in>
+					<in>I2</in>
+					<in>I4</in>
+					<in>B31</in>
+					<in>B32</in>
+					<in>B33</in>
+					<in>B34</in>
+					<in>I3</in>
+				</var>
+				<var name="RR3">
+					<in>I3</in>
+					<in>recovery_delay</in>
+				</var>
+				<var name="IR4">
+					<in>S4</in>
+					<in>I1</in>
+					<in>I2</in>
+					<in>I4</in>
+					<in>I3</in>
+					<in>B41</in>
+					<in>B42</in>
+					<in>B43</in>
+					<in>B44</in>
+				</var>
+				<var name="RR4">
+					<in>I4</in>
+					<in>recovery_delay</in>
+				</var>
+				<var name="B12">
+					<in>B11</in>
+				</var>
+				<var name="B13">
+					<in>B33</in>
+				</var>
+				<var name="B14">
+					<in>B44</in>
+				</var>
+				<var name="B21">
+					<in>B11</in>
+				</var>
+				<var name="B23">
+					<in>B33</in>
+				</var>
+				<var name="B24">
+					<in>B44</in>
+				</var>
+				<var name="B31">
+					<in>B33</in>
+				</var>
+				<var name="B32">
+					<in>B33</in>
+				</var>
+				<var name="B34">
+					<in>B44</in>
+				</var>
+				<var name="B41">
+					<in>B44</in>
+				</var>
+				<var name="B42">
+					<in>B44</in>
+				</var>
+				<var name="B43">
+					<in>B44</in>
+				</var>
+			</isee:dependencies>
+		</variables>
+		<views>
+			<style color="black" background="white" font_style="normal" font_weight="normal" text_decoration="none" text_align="center" vertical_text_align="center" font_color="black" font_family="Arial" font_size="10pt" padding="2" border_color="black" border_width="thin" border_style="none">
+				<text_box color="black" background="white" text_align="left" vertical_text_align="top" font_size="12pt"/>
+				<isee:loop_indicator color="black" background="white" text_align="left" vertical_text_align="top" font_size="12pt"/>
+				<numeric_display color="blue" background="white" font_size="9pt" isee:transparent="false"/>
+				<graph color="black" background="white" font_size="12pt" axis_color="#666666" grid_color="#C8C8C8" isee:graph_area_color="white" legend_position="bottom" isee:transparent="false" isee:hide_border="false">
+					<isee:series_styles>
+						<isee:series_style color="blue" thickness="1"/>
+						<isee:series_style color="red" thickness="1" pen_style="dot_dashed"/>
+						<isee:series_style color="fuchsia" thickness="1" pen_style="dotted"/>
+						<isee:series_style color="#008F44" thickness="1" pen_style="dashed"/>
+						<isee:series_style color="#FF7F00" thickness="1"/>
+						<isee:series_style color="#7F00FF" thickness="1" pen_style="dot_dashed"/>
+						<isee:series_style color="#0CA0FF" thickness="1" pen_style="dotted"/>
+						<isee:series_style color="lime" thickness="1" pen_style="dashed"/>
+						<isee:series_style color="#FF007F" thickness="1"/>
+						<isee:series_style color="aqua" thickness="1" pen_style="dot_dashed"/>
+						<isee:series_style color="#F586FF" thickness="1" pen_style="dotted"/>
+						<isee:series_style color="black" thickness="1" pen_style="dashed"/>
+						<isee:series_style color="#C8C8C8" thickness="1"/>
+					</isee:series_styles>
+				</graph>
+				<table color="black" background="#E0E0E0" text_align="right" font_size="12pt" orientation="vertical" wrap_text="false" isee:auto_fit="true" isee:use_alternate_row_colors="false" isee:unlimited_table_length="false" blank_column_width="80" column_width="160" interval="1" report_balances="beginning" report_flows="instantaneous"/>
+				<button color="black" background="#E0E0E0" font_size="12pt" transparent="false" corner_radius="0" isee:flat="false" icon_side="top"/>
+				<isee:annotation color="black" background="#E0E0E0" font_size="12pt" transparent="false" corner_radius="0" isee:flat="false" icon_side="top" popup_background_color="#FFFECF"/>
+				<slider color="black" background="#E0E0E0" font_size="12pt" num_ticks="3" label_side="top" wrap_title="true" isee:always_show_hover_tip="false" input_expands="true" input_width="100"/>
+				<isee:sim_speed_slider color="black" background="white"/>
+				<isee:time_slider color="#E95F74" background="silver"/>
+				<isee:pie_input color="black" background="white" font_size="12pt" legend_position="bottom" isee:transparent="false"/>
+				<knob color="#66CC66" background="#E0E0E0" font_size="12pt" label_side="bottom" wrap_title="true"/>
+				<numeric_input color="black" background="#E0E0E0" font_size="12pt" label_side="left" wrap_title="true" input_expands="false" input_width="100"/>
+				<switch color="black" background="#E0E0E0" font_size="12pt" label_side="top" wrap_title="true" isee:appearance="switch"/>
+				<options color="black" background="white" appearance="radio-buttons" arrangement="vertical"/>
+				<graphical_input color="black" background="#E0E0E0" font_size="12pt"/>
+				<group_input color="black" background="#E0E0E0" font_size="12pt"/>
+				<lamp color="black" background="white" font_size="9pt"/>
+				<gauge color="black" background="white" font_size="9pt" needle_color="#F09F72" bar_color="#EEEEEE" bar_progress_color="black" appearance="radial" num_major_ticks="11" num_minor_ticks="11" show_numeric_value="true"/>
+				<isee:spatial_map color="black" background="white" font_size="12pt"/>
+				<isee:animation_object color="black" background="white" font_size="12pt"/>
+			</style>
+			<view isee:show_pages="false" page_width="822" page_height="571" isee:page_rows="3" isee:popup_graphs_are_comparative="true" type="stock_flow">
+				<style color="black" background="white" font_style="normal" font_weight="normal" text_decoration="none" text_align="center" vertical_text_align="center" font_color="black" font_family="Arial" font_size="10pt" padding="2" border_color="black" border_width="thin" border_style="none">
+					<stock color="blue" background="white" font_color="blue" font_size="9pt" label_side="top">
+						<shape type="rectangle" width="45" height="35"/>
+					</stock>
+					<flow color="blue" background="white" font_color="blue" font_size="9pt" label_side="bottom"/>
+					<module color="blue" background="white" font_color="blue" font_size="9pt" label_side="top">
+						<shape type="rectangle" width="55" height="45"/>
+					</module>
+					<aux color="blue" background="white" font_color="blue" font_size="9pt" label_side="bottom">
+						<shape type="circle" radius="18"/>
+					</aux>
+					<group color="red" background="white" font_color="red" font_size="9pt"/>
+					<connector color="#FF007F" background="white" font_color="#FF007F" font_size="9pt" isee:thickness="1"/>
+					<text_box color="black" background="white" text_align="left" vertical_text_align="top" font_size="12pt"/>
+					<isee:loop_indicator color="black" background="white" text_align="left" vertical_text_align="top" font_size="12pt"/>
+					<numeric_display color="blue" background="white" font_size="9pt" isee:transparent="false"/>
+					<graph color="black" background="white" font_size="12pt" axis_color="#666666" grid_color="#C8C8C8" isee:graph_area_color="white" legend_position="bottom" isee:transparent="false" isee:hide_border="false">
+						<isee:series_styles>
+							<isee:series_style color="blue" thickness="1"/>
+							<isee:series_style color="red" thickness="1" pen_style="dot_dashed"/>
+							<isee:series_style color="fuchsia" thickness="1" pen_style="dotted"/>
+							<isee:series_style color="#008F44" thickness="1" pen_style="dashed"/>
+							<isee:series_style color="#FF7F00" thickness="1"/>
+							<isee:series_style color="#7F00FF" thickness="1" pen_style="dot_dashed"/>
+							<isee:series_style color="#0CA0FF" thickness="1" pen_style="dotted"/>
+							<isee:series_style color="lime" thickness="1" pen_style="dashed"/>
+							<isee:series_style color="#FF007F" thickness="1"/>
+							<isee:series_style color="aqua" thickness="1" pen_style="dot_dashed"/>
+							<isee:series_style color="#F586FF" thickness="1" pen_style="dotted"/>
+							<isee:series_style color="black" thickness="1" pen_style="dashed"/>
+							<isee:series_style color="#C8C8C8" thickness="1"/>
+						</isee:series_styles>
+					</graph>
+					<table color="black" background="#E0E0E0" text_align="right" font_size="12pt" orientation="vertical" wrap_text="false" isee:auto_fit="true" isee:use_alternate_row_colors="false" isee:unlimited_table_length="false" blank_column_width="80" column_width="160" interval="1" report_balances="beginning" report_flows="instantaneous"/>
+				</style>
+				<stock label_side="center" x="111" y="117" name="S1"/>
+				<stock label_side="center" x="247" y="117" name="I1"/>
+				<stock label_side="center" x="378" y="117" name="R1"/>
+				<flow label_side="center" x="179" y="117" name="IR1">
+					<pts>
+						<pt x="133.5" y="117"/>
+						<pt x="224.5" y="117"/>
+					</pts>
+				</flow>
+				<flow label_side="center" x="312.5" y="117" name="RR1">
+					<pts>
+						<pt x="269.5" y="117"/>
+						<pt x="355.5" y="117"/>
+					</pts>
+				</flow>
+				<connector uid="1" angle="30.2564">
+					<from>I1</from>
+					<to>RR1</to>
+				</connector>
+				<aux x="592" y="124" name="recovery delay"/>
+				<alias font_style="italic" uid="2" x="338" y="155" width="18" height="18">
+					<of>recovery_delay</of>
+				</alias>
+				<connector uid="3" angle="126.28">
+					<from>
+						<alias uid="2"/>
+					</from>
+					<to>RR1</to>
+				</connector>
+				<connector uid="4" angle="27.0506">
+					<from>S1</from>
+					<to>IR1</to>
+				</connector>
+				<stock label_side="center" x="110" y="367" name="S2"/>
+				<stock label_side="center" x="246" y="367" name="I2"/>
+				<stock label_side="center" x="377" y="367" name="R2"/>
+				<flow label_side="center" x="178" y="367" name="IR2">
+					<pts>
+						<pt x="132.5" y="367"/>
+						<pt x="223.5" y="367"/>
+					</pts>
+				</flow>
+				<flow x="311.5" y="367" name="RR2">
+					<pts>
+						<pt x="268.5" y="367"/>
+						<pt x="354.5" y="367"/>
+					</pts>
+				</flow>
+				<connector uid="5" angle="30.2564">
+					<from>I2</from>
+					<to>RR2</to>
+				</connector>
+				<connector uid="6" angle="122.574">
+					<from>
+						<alias uid="7"/>
+					</from>
+					<to>RR2</to>
+				</connector>
+				<connector uid="8" angle="26.5651">
+					<from>S2</from>
+					<to>IR2</to>
+				</connector>
+				<alias font_style="italic" uid="7" x="337" y="405" width="18" height="18">
+					<of>recovery_delay</of>
+				</alias>
+				<stock label_side="center" x="92" y="744" name="S3"/>
+				<stock label_side="center" x="228" y="744" name="I3"/>
+				<stock label_side="center" x="359" y="744" name="R3"/>
+				<flow x="160" y="744" name="IR3">
+					<pts>
+						<pt x="114.5" y="744"/>
+						<pt x="205.5" y="744"/>
+					</pts>
+				</flow>
+				<flow x="293.5" y="744" name="RR3">
+					<pts>
+						<pt x="250.5" y="744"/>
+						<pt x="336.5" y="744"/>
+					</pts>
+				</flow>
+				<connector uid="9" angle="30.2564">
+					<from>I3</from>
+					<to>RR3</to>
+				</connector>
+				<connector uid="10" angle="126.28">
+					<from>
+						<alias uid="11"/>
+					</from>
+					<to>RR3</to>
+				</connector>
+				<connector uid="12" angle="27.0506">
+					<from>S3</from>
+					<to>IR3</to>
+				</connector>
+				<alias font_style="italic" uid="11" x="319" y="782" width="18" height="18">
+					<of>recovery_delay</of>
+				</alias>
+				<stock label_side="center" x="93" y="1029" name="S4"/>
+				<stock label_side="center" x="229" y="1029" name="I4"/>
+				<stock label_side="center" x="360" y="1029" name="R4"/>
+				<flow x="161" y="1029" name="IR4">
+					<pts>
+						<pt x="115.5" y="1029"/>
+						<pt x="206.5" y="1029"/>
+					</pts>
+				</flow>
+				<flow label_side="bottom" x="294.5" y="1029" name="RR4">
+					<pts>
+						<pt x="251.5" y="1029"/>
+						<pt x="337.5" y="1029"/>
+					</pts>
+				</flow>
+				<connector uid="13" angle="30.2564">
+					<from>I4</from>
+					<to>RR4</to>
+				</connector>
+				<connector uid="14" angle="27.0506">
+					<from>S4</from>
+					<to>IR4</to>
+				</connector>
+				<alias font_style="italic" uid="15" x="320" y="1067" width="18" height="18">
+					<of>recovery_delay</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="16" x="81.5" y="33.5" width="45" height="35">
+					<of>I2</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="17" x="46.5" y="160.5" width="45" height="35">
+					<of>I3</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="18" x="231.5" y="160.5" width="45" height="35">
+					<of>I4</of>
+				</alias>
+				<connector uid="19" angle="318.652">
+					<from>
+						<alias uid="16"/>
+					</from>
+					<to>IR1</to>
+				</connector>
+				<connector uid="20" angle="148.671">
+					<from>I1</from>
+					<to>IR1</to>
+				</connector>
+				<connector uid="21" angle="140.877">
+					<from>
+						<alias uid="18"/>
+					</from>
+					<to>IR1</to>
+				</connector>
+				<connector uid="22" angle="29.0104">
+					<from>
+						<alias uid="17"/>
+					</from>
+					<to>IR1</to>
+				</connector>
+				<aux x="168.875" y="33" width="17.25" height="10" name="B11">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="23" angle="262.614">
+					<from>B11</from>
+					<to>IR1</to>
+				</connector>
+				<aux x="199.875" y="43" width="18.25" height="10" name="B12">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="24" angle="246.501">
+					<from>B12</from>
+					<to>IR1</to>
+				</connector>
+				<aux x="117.875" y="182" width="18.25" height="10" name="B13">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="188" y="187" width="18.25" height="10" name="B14">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="25" angle="48.8141">
+					<from>B13</from>
+					<to>IR1</to>
+				</connector>
+				<connector uid="26" angle="113.025">
+					<from>B14</from>
+					<to>IR1</to>
+				</connector>
+				<connector uid="27" angle="146.768">
+					<from>I2</from>
+					<to>IR2</to>
+				</connector>
+				<alias font_style="italic" label_side="center" uid="28" x="76.5" y="275.5" width="45" height="35">
+					<of>I1</of>
+				</alias>
+				<connector uid="29" angle="316.872">
+					<from>
+						<alias uid="28"/>
+					</from>
+					<to>IR2</to>
+				</connector>
+				<alias font_style="italic" label_side="center" uid="30" x="65.5" y="415.5" width="45" height="35">
+					<of>I3</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="31" x="208.5" y="409.5" width="45" height="35">
+					<of>I4</of>
+				</alias>
+				<connector uid="32" angle="131.455">
+					<from>
+						<alias uid="31"/>
+					</from>
+					<to>IR2</to>
+				</connector>
+				<connector uid="33" angle="36.2538">
+					<from>
+						<alias uid="30"/>
+					</from>
+					<to>IR2</to>
+				</connector>
+				<aux x="143.875" y="284" width="18.25" height="10" name="B21">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="190.875" y="284" width="18.25" height="10" name="B22">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="132.5" y="440" width="18.25" height="10" name="B23">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="175.875" y="437" width="18.25" height="10" name="B24">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="34" angle="64.9982">
+					<from>B23</from>
+					<to>IR2</to>
+				</connector>
+				<connector uid="35" angle="95.3322">
+					<from>B24</from>
+					<to>IR2</to>
+				</connector>
+				<connector uid="36" angle="284.47">
+					<from>B21</from>
+					<to>IR2</to>
+				</connector>
+				<connector uid="37" angle="255.964">
+					<from>B22</from>
+					<to>IR2</to>
+				</connector>
+				<alias font_style="italic" label_side="center" uid="38" x="88.5" y="661.5" width="45" height="35">
+					<of>I1</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="39" x="198.125" y="661.5" width="45" height="35">
+					<of>I2</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="40" x="69.5" y="782.5" width="45" height="35">
+					<of>I4</of>
+				</alias>
+				<connector uid="41" angle="312.93">
+					<from>
+						<alias uid="38"/>
+					</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="42" angle="226.995">
+					<from>
+						<alias uid="39"/>
+					</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="43" angle="39.4725">
+					<from>
+						<alias uid="40"/>
+					</from>
+					<to>IR3</to>
+				</connector>
+				<aux x="133.5" y="633" width="18.25" height="10" name="B31">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="172.875" y="633" width="18.25" height="10" name="B32">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="133.5" y="809" width="18.25" height="10" name="B33">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="169" y="809" width="18.25" height="10" name="B34">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="44" angle="279.309">
+					<from>B31</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="45" angle="258.275">
+					<from>B32</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="46" angle="76.0601">
+					<from>B33</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="47" angle="104.517">
+					<from>B34</from>
+					<to>IR3</to>
+				</connector>
+				<alias font_style="italic" label_side="center" uid="48" x="198.125" y="936.5" width="45" height="35">
+					<of>I2</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="49" x="60.5" y="930.5" width="45" height="35">
+					<of>I1</of>
+				</alias>
+				<alias font_style="italic" label_side="center" uid="50" x="55.5" y="1078.5" width="45" height="35">
+					<of>I3</of>
+				</alias>
+				<connector uid="51" angle="313.919">
+					<from>
+						<alias uid="49"/>
+					</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="52" angle="231.515">
+					<from>
+						<alias uid="48"/>
+					</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="53" angle="166.759">
+					<from>I4</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="54" angle="38.9115">
+					<from>
+						<alias uid="50"/>
+					</from>
+					<to>IR4</to>
+				</connector>
+				<aux x="120.5" y="915" width="18.25" height="10" name="B41">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="160" y="915" width="18.25" height="10" name="B42">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="133.5" y="1085" width="18.25" height="10" name="B43">
+					<shape type="name_only"/>
+				</aux>
+				<aux x="178.25" y="1085" width="18.25" height="10" name="B44">
+					<shape type="name_only"/>
+				</aux>
+				<connector uid="55" angle="286.058">
+					<from>B41</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="56" angle="265.737">
+					<from>B42</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="57" angle="73.2361">
+					<from>B43</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="58" angle="113.383">
+					<from>B44</from>
+					<to>IR4</to>
+				</connector>
+				<connector uid="59" angle="159.444">
+					<from>I3</from>
+					<to>IR3</to>
+				</connector>
+				<connector uid="60" angle="126.87">
+					<from>
+						<alias uid="15"/>
+					</from>
+					<to>RR4</to>
+				</connector>
+				<alias font_style="italic" uid="61" x="254.375" y="31" width="17.25" height="10">
+					<shape type="name_only"/>
+					<of>B11</of>
+				</alias>
+				<connector uid="62" angle="192.875">
+					<from>
+						<alias uid="61"/>
+					</from>
+					<to>B12</to>
+				</connector>
+				<alias font_style="italic" uid="63" x="148.75" y="207" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<connector uid="64" angle="140.424">
+					<from>
+						<alias uid="63"/>
+					</from>
+					<to>B13</to>
+				</connector>
+				<alias font_style="italic" uid="65" x="206.25" y="225" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<connector uid="66" angle="115.653">
+					<from>
+						<alias uid="65"/>
+					</from>
+					<to>B14</to>
+				</connector>
+				<alias font_style="italic" uid="67" x="172.375" y="260" width="17.25" height="10">
+					<shape type="name_only"/>
+					<of>B11</of>
+				</alias>
+				<connector uid="68" angle="213.69">
+					<from>
+						<alias uid="67"/>
+					</from>
+					<to>B21</to>
+				</connector>
+				<alias font_style="italic" uid="69" x="137.75" y="498" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<connector uid="70" angle="104.995">
+					<from>
+						<alias uid="69"/>
+					</from>
+					<to>B23</to>
+				</connector>
+				<alias font_style="italic" uid="71" x="180.875" y="490" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<connector uid="72" angle="95.3893">
+					<from>
+						<alias uid="71"/>
+					</from>
+					<to>B24</to>
+				</connector>
+				<alias font_style="italic" uid="73" x="111.875" y="584" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<connector uid="74" angle="288.435">
+					<from>
+						<alias uid="73"/>
+					</from>
+					<to>B31</to>
+				</connector>
+				<alias font_style="italic" uid="75" x="203.875" y="581" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<connector uid="76" angle="248.199">
+					<from>
+						<alias uid="75"/>
+					</from>
+					<to>B32</to>
+				</connector>
+				<alias font_style="italic" uid="77" x="210.875" y="839" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<connector uid="78" angle="152.784">
+					<from>
+						<alias uid="77"/>
+					</from>
+					<to>B34</to>
+				</connector>
+				<alias font_style="italic" uid="79" x="76.875" y="863" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<connector uid="80" angle="311.186">
+					<from>
+						<alias uid="79"/>
+					</from>
+					<to>B41</to>
+				</connector>
+				<alias font_style="italic" uid="81" x="160" y="863" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<connector uid="82" angle="270">
+					<from>
+						<alias uid="81"/>
+					</from>
+					<to>B42</to>
+				</connector>
+				<connector uid="83" angle="180">
+					<from>B44</from>
+					<to>B43</to>
+				</connector>
+			</view>
+		</views>
+	</model>
+</xmile>
+
