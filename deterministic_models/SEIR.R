@@ -18,10 +18,11 @@ SEIR <- function(initInfected, effectiveContacts, recoveryTime, latentPeriod,
   simtime <- seq(START, FINISH, by = STEP)
   
   # Create stocks vector, with initial values
-  stocks <- c(Susceptible = initSusceptible,
-              Exposed     = 0,
-              Infected    = initInfected,
-              Recovered   = 0)
+  stocks <- c(Susceptible          = initSusceptible,
+              Exposed              = 0,
+              Infected             = initInfected,
+              Recovered            = 0,
+              Cumulative_Infected  = initInfected)
   
   
   
@@ -44,13 +45,14 @@ SEIR <- function(initInfected, effectiveContacts, recoveryTime, latentPeriod,
       RR                   <- Infected / recoveryTime
       
       # Net flows
-      d_Susceptible_dt  <- -IR
-      d_Exposed_dt      <- IR - InR
-      d_Infected_dt     <- InR - RR
-      d_Recovered_dt    <- RR
+      d_Susceptible_dt         <- -IR
+      d_Exposed_dt             <- IR - InR
+      d_Infected_dt            <- InR - RR
+      d_Recovered_dt           <- RR
+      d_Cumulative_Infected_dt <- IR
       
       return(list(c(d_Susceptible_dt, d_Exposed_dt, 
-                    d_Infected_dt, d_Recovered_dt), 
+                    d_Infected_dt, d_Recovered_dt, d_Cumulative_Infected_dt), 
                   IR = IR,
                   InR = InR,
                   RR = RR, 
