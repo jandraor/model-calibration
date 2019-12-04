@@ -18,9 +18,10 @@ SIR <- function(initInfected, effectiveContacts, recoveryTime,
   simtime <- seq(START, FINISH, by = STEP)
   
   # Create stocks vector, with initial values
-  stocks <- c(Susceptible = initSusceptible,
-              Infected    = initInfected,
-              Recovered   = 0)
+  stocks <- c(Susceptible         = initSusceptible,
+              Infected            = initInfected,
+              Recovered           = 0,
+              Cumulative_Infected = initInfected)
   
 
   
@@ -39,11 +40,13 @@ SIR <- function(initInfected, effectiveContacts, recoveryTime,
       RR                   <- Infected / recoveryTime
       IR                   <- contactsPerInfected  * probability
       # Net flows
-      d_Susceptible_dt  <- -IR
-      d_Infected_dt     <- IR - RR
-      d_Recovered_dt    <- RR
+      d_Susceptible_dt         <- -IR
+      d_Infected_dt            <- IR - RR
+      d_Recovered_dt           <- RR
+      d_Cumulative_Infected_dt <- IR
       
-      return(list(c(d_Susceptible_dt, d_Infected_dt, d_Recovered_dt), 
+      return(list(c(d_Susceptible_dt, d_Infected_dt, d_Recovered_dt,
+                    d_Cumulative_Infected_dt), 
                   IR = IR, 
                   RR = RR, 
                   probability = probability, 
