@@ -118,7 +118,7 @@ stan_tp <- paste(
   "}", sep = "\n")
 
 stan_model_text <- c(
-"  params ~ normal(0, 10)",
+"  params ~ normal(0, 11)",
 "  y1     ~ poisson(incidence1)",
 "  y2     ~ poisson(incidence2)",
 "  y3     ~ poisson(incidence3)",
