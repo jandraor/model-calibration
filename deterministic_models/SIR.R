@@ -83,5 +83,8 @@ SIR <- function(initInfected, effectiveContacts, recoveryTime,
 
 
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 100ef9854a7a5f1a6dfb76ae06deed6ed6f1f325
