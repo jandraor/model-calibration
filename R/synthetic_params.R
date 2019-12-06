@@ -12,11 +12,11 @@ produce_synthetic_params <- function() {
   
   g_contacts_Fin <- draw_WAIFW(contact_matrix_Fin, "Finland's contact matrix")
   
-  raw_data <- read_csv("./data/WPP2019_PopulationByAgeSex_Medium.csv") 
+  raw_data <- read_csv("./data/Finland_population_data.csv") 
   
   age_groups <- c("00-04", "05-14", "15-44", "45+")
   
-  fin_pop <-raw_data %>%  filter(Location == "Finland", Time == "2005") %>% 
+  fin_pop <- raw_data %>% 
     select(AgeGrp, AgeGrpStart, PopTotal) %>% 
     mutate(AgeGrp = ifelse(AgeGrp == "0-4",  "00-04", AgeGrp),
            AgeGrp = ifelse(AgeGrp == "5-9",  "05-09", AgeGrp),
