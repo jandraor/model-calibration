@@ -118,7 +118,7 @@ stan_tp <- paste(
   "}", sep = "\n")
 
 stan_model_text <- c(
-"  params ~ normal(0, 11)",
+"  params ~ normal(0, 25)",
 "  y1     ~ poisson(incidence1)",
 "  y2     ~ poisson(incidence2)",
 "  y3     ~ poisson(incidence3)",
@@ -186,23 +186,44 @@ ggplot(sim_data, aes(x = week, y = value)) +
   geom_line() +
   facet_wrap(~ variable)
 
-samples       <- rstan::extract(stan_fit_2)
-param_samples <- samples$params
+samples                 <- rstan::extract(stan_fit_2)
+param_samples           <- samples$params
 colnames(param_samples) <- constants
-param_medians <- apply(param_samples, 2, function(col) median(col))
+param_medians           <- apply(param_samples, 2, function(col) median(col))
 
 conceptual_matrix <- c("B11", "B12", "B13", "B14",
                        "B21", "B22", "B23", "B24",
                        "B31", "B32", "B33", "B34",
                        "B41", "B42", "B43", "B44")
-  
-  WAIFW_medians <- sapply(
-    conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
-    matrix(nrow = 4, byrow = TRUE)
+
+
+WAIFW_medians <- sapply(
+  conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
+  matrix(nrow = 4)
   
   normalised_WAIFW <- WAIFW_medians * 1e0
   colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
   
   draw_WAIFW(normalised_WAIFW, "title")
+```
+
+```{r}
+pop_sizes <- c(output_sp$syn_pop$syn_pop)
+
+r_noughts <- sapply(1:nrow(param_samples), function(i) {
+  row <- param_samples[i, ]
+  WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+  matrix(nrow = 4, byrow = TRUE)
+  next_gen_matrix <- WAIFW / 1e5 * pop_sizes * 2
+  eigensystem <- eigen(next_gen_matrix)
+  max(abs(eigensystem$values))
+})
+
+specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
+                   text_size = 2, ypos_interval = 13, 
+                   title = "16 parameters", xlabel = "")
+
+draw_density(r_noughts, specs_list)
 ```
 

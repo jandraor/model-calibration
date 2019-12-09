@@ -84,6 +84,9 @@ produce_synthetic_params <- function() {
            syn_pop = round(10000 * proportion)) %>% 
     select(group, syn_pop)
   
+  eigensystem    <- eigen(egc_matrix * 2)
+  theoretical_R0 <-  max(abs(eigensystem$values))
+  
   syn_WAIFW <- egc_matrix / synthetic_population$syn_pop
   
   g_syn_WAIFW <- draw_WAIFW(syn_WAIFW * 1e5, "")
@@ -92,7 +95,8 @@ produce_synthetic_params <- function() {
        g_aggregated_contacts = g_grouped_contacts,
        synthetic_WAIFW = syn_WAIFW,
        g_syn_WAIFW = g_syn_WAIFW,
-       syn_pop = synthetic_population)
+       syn_pop = synthetic_population,
+       theoretical_R0 = theoretical_R0)
 }
 
 
