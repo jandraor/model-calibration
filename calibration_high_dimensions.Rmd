@@ -16,7 +16,11 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 library(deSolve)
+library(rstan)
+library(rethinking)
 devtools::load_all("../../R_Packages/readsdr/")
+source("./graphs.R")
+source("./R/stan_models.R")
 ```
 
 # 1. Synthetic data
@@ -50,14 +54,28 @@ output_sp$g_syn_WAIFW
 
 ```{r}
 source("./R/synthetic_incidence.R")
-output_gsi <- generate_synthetic_incidence(output_sp)
+output_gsi     <- generate_synthetic_incidence(output_sp)
+incidence_data <- output_gsi$incidence_df
+
+incidence_list <- lapply(1:4, function(i, incidence_data) {
+  filter(incidence_data, index_group == i) %>% pull(incidence)
+}, incidence_data = incidence_data)
+
+age_0_4_data     <- incidence_list[[1]]
+age_5_14_data    <- incidence_list[[2]]
+age_15_44_data   <- incidence_list[[3]]
+age_45_over_data <- incidence_list[[4]]
+
+length_data <- length(age_0_4_data)
 output_gsi$g_incidences
 ```
 
 \newpage
 # 2 Fitting
 
-```{r}
+## 2.1 Full-parameter matrix
+
+```{r, cache = TRUE}
 source("./stan_utils.R")
 constants <- output_gsi$constants
 constants <- constants[!constants %in% c("recovery_time", "latent_period")]
@@ -132,19 +150,6 @@ stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
 filename <- "SEIR_HD_2.stan"
 create_stan_file(stan_text, filename)
 
-incidence_data <- output_gsi$incidence_df
-
-incidence_list <- lapply(1:4, function(i, incidence_data) {
-  filter(incidence_data, index_group == i) %>% pull(incidence)
-}, incidence_data = incidence_data)
-
-age_0_4_data     <- incidence_list[[1]]
-age_5_14_data    <- incidence_list[[2]]
-age_15_44_data   <- incidence_list[[3]]
-age_45_over_data <- incidence_list[[4]]
-
-length_data <- length(age_0_4_data)
-
 stan_d <- list(n_obs    = length_data,
               n_params = length(constants), 
               n_difeq  = 16, # number of differential equations
@@ -166,7 +171,6 @@ stan_fit_2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
 
 ```{r}
 posterior_df <- as.data.frame(stan_fit_2)
-mean(posterior_df$`params[2]`) * 1e5
 
 mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
   colMeans()
@@ -182,10 +186,6 @@ sim_data <- map_df(age_groups, function(ag) {
                             variable = ag)
 }) %>% mutate(source = "sim data")
 
-ggplot(sim_data, aes(x = week, y = value)) +
-  geom_line() +
-  facet_wrap(~ variable)
-
 samples                 <- rstan::extract(stan_fit_2)
 param_samples           <- samples$params
 colnames(param_samples) <- constants
@@ -199,12 +199,44 @@ conceptual_matrix <- c("B11", "B12", "B13", "B14",
 
 WAIFW_medians <- sapply(
   conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
-  matrix(nrow = 4)
+  matrix(nrow = 4, byrow = T)
   
-  normalised_WAIFW <- WAIFW_medians * 1e0
-  colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+normalised_WAIFW <- WAIFW_medians * 1e0
+colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
   
-  draw_WAIFW(normalised_WAIFW, "title")
+draw_WAIFW(normalised_WAIFW, "title")
+```
+
+```{r g_comparison_SIR_dis_2_days}
+posterior_df <- as.data.frame(stan_fit_2)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+translation_df <- data.frame(index_group = 1:4, variable = age_groups)
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- output_gsi$incidence_df %>% rename(value = incidence) %>% 
+  mutate(source = "syn data") %>% left_join(translation_df, by = "index_group")
+
+comparison_data <- bind_rows(sim_data, real_data)
+  
+
+ggplot(comparison_data, aes(x = time, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
 ```
 
 ```{r}
@@ -224,6 +256,123 @@ specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5,
                    text_size = 2, ypos_interval = 13, 
                    title = "16 parameters", xlabel = "")
 
-draw_density(r_noughts, specs_list)
+print(draw_density(r_noughts, specs_list))
+print(output_sp$theoretical_R0)
 ```
 
+## 2.2 Symmetric matrix
+
+```{r}
+filename <- "SEIR_symmetric_2.2.stan"
+params_prior <- "  params ~ normal(0, 1000)"
+o_SEIR_sym <- write_SEIR_symmmetric(filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = 10, 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 1677265155, refresh = 5)
+```
+
+```{r}
+posterior_df <- as.data.frame(stan_fit_2.2)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(week = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+samples                 <- rstan::extract(stan_fit_2.2)
+param_samples           <- samples$params
+colnames(param_samples) <- o_SEIR_sym$params
+param_medians           <- apply(param_samples, 2, function(col) median(col))
+
+conceptual_matrix <- c("B11", "B12", "B13", "B14",
+                       "B12", "B22", "B23", "B24",
+                       "B13", "B23", "B33", "B34",
+                       "B14", "B24", "B34", "B44")
+
+
+WAIFW_medians <- sapply(
+  conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
+  matrix(nrow = 4, byrow = T)
+  
+normalised_WAIFW <- WAIFW_medians * 1e0
+colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
+  
+draw_WAIFW(normalised_WAIFW, "title")
+```
+
+
+```{r}
+posterior_df <- as.data.frame(stan_fit_2.2)
+
+mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
+  colMeans()
+
+names_mi <- names(mean_incidences)
+
+age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+
+translation_df <- data.frame(index_group = 1:4, variable = age_groups)
+
+sim_data <- map_df(age_groups, function(ag) {
+  i <- which(ag == age_groups)
+  regex <- stringr::regex(paste0("incidence", i, "\\["))
+  data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
+                            variable = ag)
+}) %>% mutate(source = "sim data")
+
+real_data <- output_gsi$incidence_df %>% rename(value = incidence) %>% 
+  mutate(source = "syn data") %>% left_join(translation_df, by = "index_group")
+
+comparison_data <- bind_rows(sim_data, real_data)
+  
+
+ggplot(comparison_data, aes(x = time, y = value)) +
+  geom_line(aes(group = source, colour = source)) +
+  scale_colour_manual(values = c("lightgrey", "blue")) +
+  facet_wrap(~variable) +
+  theme_test()
+```
+
+```{r}
+pop_sizes <- c(output_sp$syn_pop$syn_pop)
+
+r_noughts <- sapply(1:nrow(param_samples), function(i) {
+  row <- param_samples[i, ]
+  WAIFW <- sapply(conceptual_matrix, 
+                function(Bij, row) row[[Bij]], row = row) %>%
+  matrix(nrow = 4, byrow = TRUE)
+  next_gen_matrix <- WAIFW / 1e5 * pop_sizes * 2
+  eigensystem     <- eigen(next_gen_matrix)
+  max(abs(eigensystem$values))
+})
+
+specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
+                   text_size = 2, ypos_interval = 24, 
+                   title = "Symmetric matrix", xlabel = "")
+
+print(draw_density(r_noughts, specs_list))
+```

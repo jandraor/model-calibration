@@ -36,9 +36,7 @@ produce_synthetic_params <- function() {
   fin_pop <- fin_pop %>% 
     left_join(grouping_table, by = c("AgeGrp" = "five_yr_cohort"))
   
-  
-  
-  contacts_df <- melt(contact_matrix_Fin) %>% rename(from = Var2, to = Var1) %>% 
+  contacts_df <- melt(contact_matrix_Fin) %>% rename(from = Var1, to = Var2) %>% 
     select(from, to, value) %>% 
     left_join(fin_pop, by = c("from" = "AgeGrp")) %>% 
     rename(from_group = group)
@@ -69,7 +67,8 @@ produce_synthetic_params <- function() {
           axis.text.x = element_text(size = 6),
           axis.text.y = element_text(size = 6))
   
-  wider_df <- pivot_wider(grouped_contacts_df, names_from = from_group, values_from = contacts)
+  wider_df <- pivot_wider(grouped_contacts_df, names_from = from_group, 
+                          values_from = contacts)
   grouped_contact_matrix            <- wider_df[ , -1] %>% as.matrix()
   rownames(grouped_contact_matrix ) <- colnames(grouped_contact_matrix)
   

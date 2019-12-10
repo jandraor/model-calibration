@@ -2,7 +2,7 @@
 <xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0" xmlns:isee="http://iseesystems.com/XMILE">
 	<header>
 		<smile version="1.0" namespace="std, isee"/>
-		<name>4_cohorts_SEIR</name>
+		<name>cml_4_cohorts_SEIR</name>
 		<uuid>ffbcc49e-da2a-45ff-a6b6-12aec91f0816</uuid>
 		<vendor>isee systems, inc.</vendor>
 		<product version="1.6.2" isee:build_number="1445" isee:saved_by_v1="true" lang="en">Stella Architect</product>
@@ -183,6 +183,34 @@
 			<aux name="B44">
 				<eqn>0</eqn>
 			</aux>
+			<stock name="CI1">
+				<eqn>0</eqn>
+				<inflow>ICI1</inflow>
+			</stock>
+			<flow name="ICI1">
+				<eqn>InR1</eqn>
+			</flow>
+			<stock name="CI2">
+				<eqn>0</eqn>
+				<inflow>ICI2</inflow>
+			</stock>
+			<flow name="ICI2">
+				<eqn>InR2</eqn>
+			</flow>
+			<stock name="CI3">
+				<eqn>0</eqn>
+				<inflow>ICI3</inflow>
+			</stock>
+			<flow name="ICI3">
+				<eqn>InR3</eqn>
+			</flow>
+			<stock name="CI4">
+				<eqn>0</eqn>
+				<inflow>ICI4</inflow>
+			</stock>
+			<flow name="ICI4">
+				<eqn>InR4</eqn>
+			</flow>
 			<isee:dependencies>
 				<var name="IR1">
 					<in>I1</in>
@@ -278,6 +306,18 @@
 				<var name="B43">
 					<in>B34</in>
 				</var>
+				<var name="ICI1">
+					<in>InR1</in>
+				</var>
+				<var name="ICI2">
+					<in>InR2</in>
+				</var>
+				<var name="ICI3">
+					<in>InR3</in>
+				</var>
+				<var name="ICI4">
+					<in>InR4</in>
+				</var>
 			</isee:dependencies>
 		</variables>
 		<views>
@@ -320,7 +360,7 @@
 				<isee:spatial_map color="black" background="white" font_size="12pt"/>
 				<isee:animation_object color="black" background="white" font_size="12pt"/>
 			</style>
-			<view isee:show_pages="false" page_width="818" page_height="575" isee:page_cols="2" isee:page_rows="2" isee:scroll_y="308" isee:popup_graphs_are_comparative="true" type="stock_flow">
+			<view isee:show_pages="false" page_width="818" page_height="575" isee:page_cols="3" isee:page_rows="2" isee:scroll_y="308" isee:popup_graphs_are_comparative="true" type="stock_flow">
 				<style color="black" background="white" font_style="normal" font_weight="normal" text_decoration="none" text_align="center" vertical_text_align="center" font_color="black" font_family="Arial" font_size="10pt" padding="2" border_color="black" border_width="thin" border_style="none">
 					<stock color="blue" background="white" font_color="blue" font_size="9pt" label_side="top">
 						<shape type="rectangle" width="45" height="35"/>
@@ -366,7 +406,7 @@
 						<pt x="219.5" y="121"/>
 					</pts>
 				</flow>
-				<flow label_side="bottom" x="313" y="121" name="InR1">
+				<flow label_side="top" x="313" y="121" name="InR1">
 					<pts>
 						<pt x="264.5" y="121"/>
 						<pt x="361.5" y="121"/>
@@ -388,7 +428,7 @@
 						<pt x="246.5" y="374"/>
 					</pts>
 				</flow>
-				<flow label_side="bottom" x="340" y="374" name="InR2">
+				<flow label_side="top" x="340" y="374" name="InR2">
 					<pts>
 						<pt x="291.5" y="374"/>
 						<pt x="388.5" y="374"/>
@@ -410,7 +450,7 @@
 						<pt x="233.5" y="621"/>
 					</pts>
 				</flow>
-				<flow label_side="bottom" x="327" y="621" name="InR3">
+				<flow label_side="center" x="327" y="621" name="InR3">
 					<pts>
 						<pt x="278.5" y="621"/>
 						<pt x="375.5" y="621"/>
@@ -432,7 +472,7 @@
 						<pt x="230.5" y="842"/>
 					</pts>
 				</flow>
-				<flow label_side="bottom" x="324" y="842" name="InR4">
+				<flow label_side="center" x="324" y="842" name="InR4">
 					<pts>
 						<pt x="275.5" y="842"/>
 						<pt x="372.5" y="842"/>
@@ -786,8 +826,8 @@
 					</from>
 					<to>B43</to>
 				</connector>
-				<stacked_container uid="89" x="971" y="395">
-					<graph x="796" y="270" width="350" height="250" type="time_series" show_grid="false" include_units_in_legend="false" plot_numbers="false" isee:label_pie_slices="false" num_x_grid_lines="0" num_y_grid_lines="0" num_x_labels="5" num_y_labels="3" title="Graph" isee:fill_intensity="0.1" left_axis_multi_scale="false" left_axis_auto_scale="true" right_axis_multi_scale="false" right_axis_auto_scale="true">
+				<stacked_container uid="89" x="1468" y="188.5">
+					<graph x="1293" y="63.5" width="350" height="250" type="time_series" show_grid="false" include_units_in_legend="false" plot_numbers="false" isee:label_pie_slices="false" num_x_grid_lines="0" num_y_grid_lines="0" num_x_labels="5" num_y_labels="3" title="Graph" isee:fill_intensity="0.1" left_axis_multi_scale="false" left_axis_auto_scale="true" right_axis_multi_scale="false" right_axis_auto_scale="true">
 						<plot color="blue" pen_width="1" index="0" show_y_axis="true">
 							<entity name="I1"/>
 						</plot>
@@ -897,6 +937,50 @@
 					<shape type="name_only"/>
 					<of>B34</of>
 				</alias>
+				<stock x="389.125" y="220" name="CI1"/>
+				<flow x="334.813" y="226" name="ICI1">
+					<pts>
+						<pt x="291" y="226"/>
+						<pt x="366.625" y="226"/>
+					</pts>
+				</flow>
+				<connector uid="90" angle="275.194">
+					<from>InR1</from>
+					<to>ICI1</to>
+				</connector>
+				<stock x="411.125" y="455" name="CI2"/>
+				<flow x="356.813" y="461" name="ICI2">
+					<pts>
+						<pt x="313" y="461"/>
+						<pt x="388.625" y="461"/>
+					</pts>
+				</flow>
+				<connector uid="91" angle="280.62">
+					<from>InR2</from>
+					<to>ICI2</to>
+				</connector>
+				<stock x="417.125" y="698" name="CI3"/>
+				<flow x="362.813" y="704" name="ICI3">
+					<pts>
+						<pt x="319" y="704"/>
+						<pt x="394.625" y="704"/>
+					</pts>
+				</flow>
+				<connector uid="92" angle="289.537">
+					<from>InR3</from>
+					<to>ICI3</to>
+				</connector>
+				<stock x="435.125" y="923" name="CI4"/>
+				<flow x="380.813" y="929" name="ICI4">
+					<pts>
+						<pt x="337" y="929"/>
+						<pt x="412.625" y="929"/>
+					</pts>
+				</flow>
+				<connector uid="93" angle="303.69">
+					<from>InR4</from>
+					<to>ICI4</to>
+				</connector>
 			</view>
 		</views>
 	</model>

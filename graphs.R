@@ -115,9 +115,9 @@ draw_density <- function(data_vector, g_params) {
 draw_WAIFW <- function(WAIFW, subtitle) {
   library(reshape2)
 
-  WAIFW_df <- melt(WAIFW)
+  WAIFW_df <- WAIFW %>% t() %>% melt()
   
-  ggplot(data = WAIFW_df, aes(x=Var1, 
+  ggplot(data = WAIFW_df, aes(x = Var1, 
                               y = ordered(Var2, levels = rev(sort(unique(Var2)))), 
                               fill = value)) + 
     geom_tile() +
