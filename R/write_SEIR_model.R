@@ -1,6 +1,26 @@
-write_SEIR_symmmetric <- function(filename, stocks, params_prior) {
+write_SEIR_model <- function(matrix_type, filename, stocks, params_prior) {
   source("./stan_utils.R")
-  model_file     <- "./deterministic_models/4_cohorts_SEIR.stmx"
+  
+  if(matrix_type == "A") {
+    model_file   <- "./deterministic_models/4_cohorts_SEIR_matrix_A.stmx"
+    ODE_fun_name <- "SEIR_matrix_A"
+  }
+  
+  if(matrix_type == "B") {
+    model_file   <- "./deterministic_models/4_cohorts_SEIR_matrix_B.stmx"
+    ODE_fun_name <- "SEIR_matrix_B"
+  }
+  
+  if(matrix_type == "C") {
+    model_file     <- "./deterministic_models/4_cohorts_SEIR_matrix_C.stmx"
+    ODE_fun_name <- "SEIR_matrix_C"
+  }
+  
+  if(matrix_type == "D") {
+    model_file     <- "./deterministic_models/4_cohorts_SEIR_matrix_D.stmx"
+    ODE_fun_name <- "SEIR_matrix_D"
+  }
+  
   mdl            <- read_xmile(model_file)
   constant_names <- map_chr(mdl$description$constants, "name")
   # serial interval parameters
@@ -11,7 +31,7 @@ write_SEIR_symmmetric <- function(filename, stocks, params_prior) {
     list(name = "recovery_time", value = 2),
     list(name = "latent_period", value = 1))
   
-  stan_fun   <- create_stan_function(model_file, "SEIR_sym_cohorts", 
+  stan_fun   <- create_stan_function(model_file, ODE_fun_name, 
                                      pars = params,
                                      override.consts = override_consts)
   
@@ -31,14 +51,15 @@ write_SEIR_symmmetric <- function(filename, stocks, params_prior) {
   stan_td     <- generate_transformed_data_block()
   stan_params <- generate_parameters_block("poisson")
   
-  stocks      <- output_gsi$stocks
-  
   counter <- 0
   
   stan_init_stocks <- sapply(stocks, function(stock) {
     counter <<- counter + 1
     paste0("  y0[", counter, "] = ", stock, ";")
   }) %>% paste(collapse = "\n")
+  
+  fun_exe_line <- paste0("  y_hat = integrate_ode_rk45(",
+                         ODE_fun_name,", y0, t0, ts, params, x_r, x_i);")
   
   stan_tp <- paste(
     "transformed parameters{",
@@ -49,7 +70,7 @@ write_SEIR_symmmetric <- function(filename, stocks, params_prior) {
     "  real incidence3[n_obs];",
     "  real incidence4[n_obs];",
     stan_init_stocks,
-    "  y_hat = integrate_ode_rk45(SEIR_sym_cohorts, y0, t0, ts, params, x_r, x_i);",
+    fun_exe_line,
     "  incidence1[1] =  y_hat[1, 3] + y_hat[1, 4] - y0[3] - y0[4];",
     "  incidence2[1] =  y_hat[1, 7] + y_hat[1, 8] - y0[7] - y0[8];",
     "  incidence3[1] =  y_hat[1, 11] + y_hat[1, 12] - y0[11] - y0[12];",
@@ -77,4 +98,4 @@ write_SEIR_symmmetric <- function(filename, stocks, params_prior) {
   create_stan_file(stan_text, filename)
   
   list(params = params)
- }
+}

@@ -18,7 +18,7 @@ library(purrr)
 library(deSolve)
 library(rstan)
 library(rethinking)
-devtools::load_all("../../R_Packages/readsdr/")
+devtools::load_all("../R_packages/readsdr")
 source("./graphs.R")
 source("./R/stan_models.R")
 ```
@@ -71,87 +71,19 @@ output_gsi$g_incidences
 ```
 
 \newpage
-# 2 Fitting
+# 2 Fitting incidence data
 
-## 2.1 Full-parameter matrix
+## 2.1 Matrix A
 
 ```{r, cache = TRUE}
-source("./stan_utils.R")
-constants <- output_gsi$constants
-constants <- constants[!constants %in% c("recovery_time", "latent_period")]
+source("./R/write_SEIR_model.R")
 
-model_file <- "./deterministic_models/4_cohorts_SEIR_full_params.stmx"
-override_consts <- list(
-  list(name = "recovery_time", value = 2),
-  list(name = "latent_period", value = 1))
-stan_fun   <- create_stan_function(model_file, "SEIR_four_cohorts", 
-                                   pars = constants,
-                                   override.consts = override_consts)
-
-stan_data  <- paste(
-  "data {",
-  "  int<lower = 1> n_obs; // Number of weeks sampled",
-  "  int<lower = 1> n_params; // Number of model parameters",
-  "  int<lower = 1> n_difeq; // Number of differential equations in the system",
-  "  int y1[n_obs];",
-  "  int y2[n_obs];",
-  "  int y3[n_obs];",
-  "  int y4[n_obs];",
-  "  real t0; // Initial time point (zero)",
-  "  real ts[n_obs]; // Time points that were sampled",
-  "}", sep = "\n")
-
-stan_td     <- generate_transformed_data_block()
-stan_params <- generate_parameters_block("poisson")
-
-stocks      <- output_gsi$stocks
-
-counter <- 0
-
-stan_init_stocks <- sapply(stocks, function(stock) {
-  counter <<- counter + 1
-  paste0("  y0[", counter, "] = ", stock, ";")
-}) %>% paste(collapse = "\n")
-
-stan_tp <- paste(
-  "transformed parameters{",
-  "  real y_hat[n_obs, n_difeq]; // Output from the ODE solver",
-  "  real y0[n_difeq]; // Initial conditions",
-  "  real incidence1[n_obs];",
-  "  real incidence2[n_obs];",
-  "  real incidence3[n_obs];",
-  "  real incidence4[n_obs];",
-  stan_init_stocks,
-  "  y_hat = integrate_ode_rk45(SEIR_four_cohorts, y0, t0, ts, params, x_r, x_i);",
-  "  incidence1[1] =  y_hat[1, 3] + y_hat[1, 4] - y0[3] - y0[4];",
-  "  incidence2[1] =  y_hat[1, 7] + y_hat[1, 8] - y0[7] - y0[8];",
-  "  incidence3[1] =  y_hat[1, 11] + y_hat[1, 12] - y0[11] - y0[12];",
-  "  incidence4[1] =  y_hat[1, 15] + y_hat[1, 16] - y0[15] - y0[16];",
-  "  for (i in 1:n_obs-1) {",
-  "    incidence1[i + 1] = y_hat[i + 1, 3] + y_hat[i + 1, 4] - y_hat[i, 3] - y_hat[i, 4] + 0.00001;",
-  "    incidence2[i + 1] = y_hat[i + 1, 7] + y_hat[i + 1, 8] - y_hat[i, 7] - y_hat[i, 8] + 0.00001;",
-  "    incidence3[i + 1] = y_hat[i + 1, 11] + y_hat[i + 1, 12] - y_hat[i, 11] - y_hat[i, 12] + 0.00001;",
-  "    incidence4[i + 1] = y_hat[i + 1, 15] + y_hat[i + 1, 16] - y_hat[i, 15] - y_hat[i, 16] + 0.00001;",
-  "   }",
-  "}", sep = "\n")
-
-stan_model_text <- c(
-"  params ~ normal(0, 25)",
-"  y1     ~ poisson(incidence1)",
-"  y2     ~ poisson(incidence2)",
-"  y3     ~ poisson(incidence3)",
-"  y4     ~ poisson(incidence4)"
-)
-stan_model  <- generate_model_text(stan_model_text)
-
-stan_text   <- paste(stan_fun, stan_data, stan_td, stan_params,
-                     stan_tp, stan_model, sep = "\n")
-
-filename <- "SEIR_HD_2.stan"
-create_stan_file(stan_text, filename)
+filename     <- "SEIR_2.1.stan"
+params_prior <- "  params ~ normal(0, 25)"
+o_SEIR_A     <- write_SEIR_model("A", filename, output_gsi$stocks, params_prior)
 
 stan_d <- list(n_obs    = length_data,
-              n_params = length(constants), 
+              n_params = 16, 
               n_difeq  = 16, # number of differential equations
               y1       = age_0_4_data,
               y2       = age_5_14_data,
@@ -165,107 +97,44 @@ test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
-stan_fit_2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+stan_fit_2.1 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
                    iter   = 2000, cores  = 3, seed = 936357172, refresh = 5)
 ```
 
 ```{r}
-posterior_df <- as.data.frame(stan_fit_2)
-
-mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
-  colMeans()
-
-names_mi <- names(mean_incidences)
-
-age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
-
-sim_data <- map_df(age_groups, function(ag) {
-  i <- which(ag == age_groups)
-  regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(week = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
-                            variable = ag)
-}) %>% mutate(source = "sim data")
-
-samples                 <- rstan::extract(stan_fit_2)
-param_samples           <- samples$params
-colnames(param_samples) <- constants
-param_medians           <- apply(param_samples, 2, function(col) median(col))
+source("./R/summarise_results.R")
 
 conceptual_matrix <- c("B11", "B12", "B13", "B14",
                        "B21", "B22", "B23", "B24",
                        "B31", "B32", "B33", "B34",
                        "B41", "B42", "B43", "B44")
 
+specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
+                   text_size = 2, ypos_interval = 13, 
+                   title = "Matrix A", xlabel = "")
 
-WAIFW_medians <- sapply(
-  conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
-  matrix(nrow = 4, byrow = T)
-  
-normalised_WAIFW <- WAIFW_medians * 1e0
-colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
-  
-draw_WAIFW(normalised_WAIFW, "title")
+summary_2.1 <- summarise_results(stan_fit_2.1, conceptual_matrix, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_A$params)
+summary_2.1$g_WAIFW
 ```
 
 ```{r g_comparison_SIR_dis_2_days}
-posterior_df <- as.data.frame(stan_fit_2)
-
-mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
-  colMeans()
-
-names_mi <- names(mean_incidences)
-
-age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
-
-translation_df <- data.frame(index_group = 1:4, variable = age_groups)
-
-sim_data <- map_df(age_groups, function(ag) {
-  i <- which(ag == age_groups)
-  regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
-                            variable = ag)
-}) %>% mutate(source = "sim data")
-
-real_data <- output_gsi$incidence_df %>% rename(value = incidence) %>% 
-  mutate(source = "syn data") %>% left_join(translation_df, by = "index_group")
-
-comparison_data <- bind_rows(sim_data, real_data)
-  
-
-ggplot(comparison_data, aes(x = time, y = value)) +
-  geom_line(aes(group = source, colour = source)) +
-  scale_colour_manual(values = c("lightgrey", "blue")) +
-  facet_wrap(~variable) +
-  theme_test()
+summary_2.1$g_comparison
 ```
 
 ```{r}
-pop_sizes <- c(output_sp$syn_pop$syn_pop)
-
-r_noughts <- sapply(1:nrow(param_samples), function(i) {
-  row <- param_samples[i, ]
-  WAIFW <- sapply(conceptual_matrix, 
-                function(Bij, row) row[[Bij]], row = row) %>%
-  matrix(nrow = 4, byrow = TRUE)
-  next_gen_matrix <- WAIFW / 1e5 * pop_sizes * 2
-  eigensystem <- eigen(next_gen_matrix)
-  max(abs(eigensystem$values))
-})
-
-specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
-                   text_size = 2, ypos_interval = 13, 
-                   title = "16 parameters", xlabel = "")
-
-print(draw_density(r_noughts, specs_list))
-print(output_sp$theoretical_R0)
+summary_2.1$g_rNougths
 ```
 
-## 2.2 Symmetric matrix
+## 2.2 Matrix B
 
 ```{r}
-filename <- "SEIR_symmetric_2.2.stan"
+source("./R/write_SEIR_model.R")
+
+filename     <- "SEIR_2.2.stan"
 params_prior <- "  params ~ normal(0, 1000)"
-o_SEIR_sym <- write_SEIR_symmmetric(filename, output_gsi$stocks, params_prior)
+o_SEIR_B     <- write_SEIR_model("B", filename, output_gsi$stocks, params_prior)
 
 stan_d <- list(n_obs    = length_data,
               n_params = 10, 
@@ -287,92 +156,150 @@ stan_fit_2.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
 ```
 
 ```{r}
-posterior_df <- as.data.frame(stan_fit_2.2)
-
-mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
-  colMeans()
-
-names_mi <- names(mean_incidences)
-
-age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
-
-sim_data <- map_df(age_groups, function(ag) {
-  i <- which(ag == age_groups)
-  regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(week = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
-                            variable = ag)
-}) %>% mutate(source = "sim data")
-
-samples                 <- rstan::extract(stan_fit_2.2)
-param_samples           <- samples$params
-colnames(param_samples) <- o_SEIR_sym$params
-param_medians           <- apply(param_samples, 2, function(col) median(col))
+source("./R/summarise_results.R")
 
 conceptual_matrix <- c("B11", "B12", "B13", "B14",
                        "B12", "B22", "B23", "B24",
                        "B13", "B23", "B33", "B34",
                        "B14", "B24", "B34", "B44")
 
+specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
+                   text_size = 2, ypos_interval = 24, 
+                   title = "Matrix B", xlabel = "")
 
-WAIFW_medians <- sapply(
-  conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
-  matrix(nrow = 4, byrow = T)
-  
-normalised_WAIFW <- WAIFW_medians * 1e0
-colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
-  
-draw_WAIFW(normalised_WAIFW, "title")
+summary_2.2 <- summarise_results(stan_fit_2.2, conceptual_matrix, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_B$params)
+summary_2.2$g_WAIFW
 ```
 
 
 ```{r}
-posterior_df <- as.data.frame(stan_fit_2.2)
-
-mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
-  colMeans()
-
-names_mi <- names(mean_incidences)
-
-age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
-
-translation_df <- data.frame(index_group = 1:4, variable = age_groups)
-
-sim_data <- map_df(age_groups, function(ag) {
-  i <- which(ag == age_groups)
-  regex <- stringr::regex(paste0("incidence", i, "\\["))
-  data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
-                            variable = ag)
-}) %>% mutate(source = "sim data")
-
-real_data <- output_gsi$incidence_df %>% rename(value = incidence) %>% 
-  mutate(source = "syn data") %>% left_join(translation_df, by = "index_group")
-
-comparison_data <- bind_rows(sim_data, real_data)
-  
-
-ggplot(comparison_data, aes(x = time, y = value)) +
-  geom_line(aes(group = source, colour = source)) +
-  scale_colour_manual(values = c("lightgrey", "blue")) +
-  facet_wrap(~variable) +
-  theme_test()
+summary_2.2$g_comparison
 ```
 
 ```{r}
-pop_sizes <- c(output_sp$syn_pop$syn_pop)
+summary_2.2$g_rNougths
+```
 
-r_noughts <- sapply(1:nrow(param_samples), function(i) {
-  row <- param_samples[i, ]
-  WAIFW <- sapply(conceptual_matrix, 
-                function(Bij, row) row[[Bij]], row = row) %>%
-  matrix(nrow = 4, byrow = TRUE)
-  next_gen_matrix <- WAIFW / 1e5 * pop_sizes * 2
-  eigensystem     <- eigen(next_gen_matrix)
-  max(abs(eigensystem$values))
-})
+## 2.3 Matrix C
+
+```{r}
+source("./R/write_SEIR_model.R")
+filename     <- "SEIR_2.3.stan"
+params_prior <- "  params ~ normal(0, 100)"
+o_SEIR_C     <- write_SEIR_model("C", filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(o_SEIR_C$params), 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.3 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 1298600912, refresh = 5)
+```
+
+```{r}
+source("./R/summarise_results.R")
+conceptual_matrix <- c("B11", "B11", "B33", "B44",
+                       "B11", "B22", "B33", "B44",
+                       "B33", "B33", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
 
 specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
                    text_size = 2, ypos_interval = 24, 
-                   title = "Symmetric matrix", xlabel = "")
+                   title = "Matrix C", xlabel = "")
 
-print(draw_density(r_noughts, specs_list))
+summary_2.3 <- summarise_results(stan_fit_2.3, conceptual_matrix, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_C$params)
+summary_2.3$g_WAIFW
 ```
+
+```{r}
+summary_2.3$g_comparison
+```
+
+```{r}
+summary_2.3$g_rNougths
+```
+
+## 2.4 Matrix D
+
+```{r}
+source("./R/write_SEIR_model.R")
+filename     <- "SEIR_2.4.stan"
+params_prior <- "  params ~ normal(0, 100)"
+o_SEIR_D     <- write_SEIR_model("D", filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(o_SEIR_D$params), 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_2.4 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 615190292, refresh = 5)
+```
+
+```{r}
+source("./R/summarise_results.R")
+conceptual_matrix <- c("B11", "B44", "B44", "B44",
+                       "B44", "B22", "B44", "B44",
+                       "B44", "B44", "B33", "B44",
+                       "B44", "B44", "B44", "B44")
+
+specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26,
+                     text_size = 2, ypos_interval = 24, 
+                     title = "Matrix D", xlabel = "")
+
+summary_2.4 <- summarise_results(stan_fit_2.4, conceptual_matrix, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_D$params)
+summary_2.4$g_WAIFW
+```
+
+```{r}
+summary_2.4$g_comparison
+```
+
+```{r}
+summary_2.4$g_rNougths
+```
+
+## 2.5 $R_{0}$ estimation
+
+```{r}
+matrices <- paste0("Matrix ", LETTERS[1:4])
+
+R_estimations <- data.frame(matrix = matrices, 
+                            R0 = c(summary_2.1$mean_rNought,
+                                   summary_2.2$mean_rNought,
+                                   summary_2.3$mean_rNought,
+                                   summary_2.4$mean_rNought))
+
+ggplot(R_estimations, aes(x = matrix, y = R0)) +
+  geom_point() +
+  geom_hline(yintercept = output_sp$theoretical_R0, linetype = "dashed") +
+  theme_test()
+```
+
