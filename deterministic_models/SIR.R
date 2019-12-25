@@ -80,11 +80,3 @@ SIR <- function(initInfected, effectiveContacts, recoveryTime,
        model_df   = o,
        stocks_graph   = g)
 }
-
-
-
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 100ef9854a7a5f1a6dfb76ae06deed6ed6f1f325

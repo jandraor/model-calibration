@@ -22,7 +22,8 @@ library(bayesplot)
 library(tidyr)
 library(reshape2)
 library(ggsci)
-devtools::load_all("../../R_Packages/readsdr/")
+library(deSolve)
+devtools::load_all("../R_packages/readsdr")
 source('./stan_utils.R')
 ```
 
@@ -2275,5 +2276,249 @@ g3 <- ggplot(summary_fits, aes(x = as.factor(node), y = mean)) +
 
 ```{r, fig.height = 6}
 grid.arrange(g1, g2, g3, ncol = 1)
+```
+
+```{r}
+model_file <- "./deterministic_models/SIR_cumulative.stmx"
+mdl        <- read_xmile(model_file)
+ds_consts  <- mdl$deSolve_components$consts
+ds_func    <- mdl$deSolve_components$func
+ds_stocks  <- mdl$deSolve_components$stocks
+
+library(deSolve)
+
+# Create time vector
+simtime <- seq(0, 30, by = 1 / 128)
+
+generate_sir_inc <- function() {
+  
+  function(pars) {
+    ds_consts["ec"] <- pars[[1]]
+    ds_consts["recovery_proportion"] <- pars[[2]]
+    
+    o <- ode(
+      y     = ds_stocks, times = simtime,
+      func  = ds_func,
+      parms = ds_consts, method = "rk4") %>% data.frame() %>% 
+      filter(time - trunc(time) == 0) %>% 
+    mutate(eI = I + R, 
+           incidence = eI - lag(eI, default = eI[1]),
+           incidence = round(incidence)) %>% 
+    select(time, incidence) %>% 
+    filter(time != 0)
+   }
+}
+
+sir_function <- generate_sir_inc()
+
+poisson.loglik <-  function (params) {
+  sim <- sir_function(params) %>% pull(incidence)
+  -1 * sum(dpois(x = sim, lambda = synthetic_incidence, log = TRUE))
+}
+
+sim_labels <- paste0("init_", 1:10)
+
+set.seed(45)
+
+inits_list <- lapply(sim_labels, function(lbl){
+  list(label = lbl,
+       init_ec = runif(1, 0, 20),
+       init_rp = runif(1, 0, 1))
+})
+
+inits_list[[11]] <- list(label = "solution",
+                        init_ec = 1,
+                        init_rp = 0.5)
+
+
+fits_list <- lapply(inits_list, function(init_obj){
+  print(init_obj$label)
+  optim_fit <- optim(par = c(init_obj$init_ec, init_obj$init_rp), 
+                     fn = poisson.loglik, 
+                     method = "Nelder-Mead")
+  list(pars = optim_fit$par, log_lik = -1 * optim_fit$value,
+       label = init_obj$label)
+})
+
+fits_df <- map_df(fits_list, function(fit) {
+  pars <- fit$pars
+  sir_function(c(pars[[1]], pars[[2]])) %>% 
+    mutate(fit = fit$label)
+})
+
+fits_df <- fits_df %>% 
+  mutate(fit_type = ifelse(fit == "solution", "solution", "fit"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue")) +
+  facet_wrap(~ fit)
+```
+
+
+```{r}
+model_file <- "./deterministic_models/SEIR_cumulative.stmx"
+mdl        <- read_xmile(model_file)
+ds_consts  <- mdl$deSolve_components$consts
+ds_func    <- mdl$deSolve_components$func
+ds_stocks  <- mdl$deSolve_components$stocks
+
+library(deSolve)
+
+# Create time vector
+simtime <- seq(0, 30, by = 1 / 128)
+
+generate_seir_inc <- function() {
+  
+  function(pars) {
+    ds_consts["ec"] <- pars[[1]]
+    ds_consts["infectious_proportion"] <- pars[[2]]
+    
+    o <- ode(
+      y     = ds_stocks, times = simtime,
+      func  = ds_func,
+      parms = ds_consts, method = "rk4") %>% data.frame() %>% 
+      filter(time - trunc(time) == 0) %>% 
+    mutate(eI = I + R, 
+           incidence = eI - lag(eI, default = eI[1]),
+           incidence = round(incidence)) %>% 
+    select(time, incidence) %>% 
+    filter(time != 0)
+   }
+}
+
+seir_function <- generate_seir_inc()
+
+poisson.loglik <-  function (params) {
+  sim <- seir_function(params) %>% pull(incidence)
+  -1 * sum(dpois(x = sim, lambda = synthetic_incidence2, log = TRUE))
+}
+
+sim_labels <- paste0("init_", 1:30)
+
+set.seed(15)
+
+inits_list <- lapply(sim_labels, function(lbl){
+  list(label = lbl,
+       init_ec = runif(1, 0, 20),
+       init_lp = runif(1, 0, 2))
+})
+
+inits_list[[31]] <- list(label = "solution",
+                        init_ec = 1,
+                        init_lp = 1)
+
+
+fits_list <- lapply(inits_list, function(init_obj){
+  print(init_obj$label)
+  optim_fit <- optim(par = c(init_obj$init_ec, init_obj$init_lp), 
+                     fn = poisson.loglik, 
+                     method = "Nelder-Mead")
+  list(pars = optim_fit$par, log_lik = -1 * optim_fit$value,
+       label = init_obj$label)
+})
+
+fits_df <- map_df(fits_list, function(fit) {
+  pars <- fit$pars
+  seir_function(c(pars[[1]], pars[[2]])) %>% 
+    mutate(fit = fit$label)
+})
+
+fits_df <- fits_df %>% 
+  mutate(fit_type = ifelse(fit == "solution", "solution", "fit"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue")) +
+  facet_wrap(~ fit)
+```
+
+```{r}
+model_file <- "./deterministic_models/SEIR_cumulative.stmx"
+mdl        <- read_xmile(model_file)
+ds_consts  <- mdl$deSolve_components$consts
+ds_func    <- mdl$deSolve_components$func
+ds_stocks  <- mdl$deSolve_components$stocks
+
+library(deSolve)
+
+# Create time vector
+simtime <- seq(0, 30, by = 1 / 128)
+
+generate_seir_inc <- function() {
+  
+  function(pars) {
+    ds_consts["ec"]  <- pars[[1]]
+    ds_stocks["S"] <- pars[[2]]
+    
+    o <- ode(
+      y     = ds_stocks, times = simtime,
+      func  = ds_func,
+      parms = ds_consts, method = "rk4") %>% data.frame() %>% 
+      filter(time - trunc(time) == 0) %>% 
+    mutate(eI = I + R, 
+           incidence = eI - lag(eI, default = eI[1]),
+           incidence = round(incidence)) %>% 
+    select(time, incidence) %>% 
+    filter(time != 0)
+   }
+}
+
+seir_function <- generate_seir_inc()
+
+poisson.loglik <-  function (params) {
+  sim <- seir_function(params) %>% pull(incidence)
+  -1 * sum(dpois(x = sim, lambda = synthetic_incidence2, log = TRUE))
+}
+
+sim_labels <- paste0("init_", 1:30)
+
+set.seed(15)
+
+inits_list <- lapply(sim_labels, function(lbl){
+  list(label = lbl,
+       init_ec = runif(1, 0, 20),
+       init_S = runif(1, 0, 2000))
+})
+
+inits_list[[31]] <- list(label = "solution",
+                        init_ec = 1,
+                        init_S = 990)
+
+
+fits_list <- lapply(inits_list, function(init_obj){
+  print(init_obj$label)
+  optim_fit <- optim(par = c(init_obj$init_ec, init_obj$init_S), 
+                     fn = poisson.loglik, 
+                     method = "Nelder-Mead")
+  list(pars = optim_fit$par, log_lik = -1 * optim_fit$value,
+       label = init_obj$label)
+})
+
+fits_df <- map_df(fits_list, function(fit) {
+  pars <- fit$pars
+  seir_function(c(pars[[1]], pars[[2]])) %>% 
+    mutate(fit = fit$label)
+})
+
+fits_df <- fits_df %>% 
+  mutate(fit_type = ifelse(fit == "solution", "solution", "fit"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue"))
+
+ggplot(fits_df, aes(x = time, y = incidence)) +
+  geom_line(aes(group = fit, colour = fit_type)) +
+  scale_colour_manual(values = c("grey", "blue")) +
+  facet_wrap(~ fit)
 ```
 

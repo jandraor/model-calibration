@@ -1,6 +1,6 @@
 generate_synthetic_incidence <- function(output_sp) {
   
-  model_file <- "./deterministic_models/4_cohorts_SEIR_full_params.stmx"
+  model_file <- "./deterministic_models/4_cohorts_SEIR_matrix_A.stmx"
   model_structure <- read_xmile(model_file)
   syn_WAIFW <- output_sp$synthetic_WAIFW * 1e5
   constants <- names(model_structure$deSolve_components$consts)
@@ -71,7 +71,22 @@ generate_synthetic_incidence <- function(output_sp) {
       mutate(index_group = index)
   }
   
-  incidence_df <- map_df(1:4, generate_incidence_df, df = o)
+  generate_cml_incidence_df <- function(index, df) {
+    Infected  <- paste0("I", index)
+    Recovered <- paste0("R", index)
+    
+    incidence_data <- df %>% select(time, c(Infected, Recovered)) %>% 
+      rename(Infected := !!Infected, Recovered := !!Recovered) %>% 
+      filter(time - trunc(time) == 0) %>% 
+      mutate(cml_incidence = round(Infected + Recovered, 0)) %>% 
+      select(time, cml_incidence) %>% 
+      filter(time != 0) %>% 
+      mutate(index_group = index)
+  }
+  
+  incidence_df  <- map_df(1:4, generate_incidence_df, df = o)
+  
+  cumulative_df <- map_df(1:4, generate_cml_incidence_df , df = o)
   
   age_groups <- c("00-04", "05-14", "15-44", "45+")
   names(age_groups) <- as.character(1:4)
@@ -85,6 +100,7 @@ generate_synthetic_incidence <- function(output_sp) {
     theme_test()
   
   list(incidence_df = incidence_df,
+       cumulative_df = cumulative_df,
        g_incidences = g_incidences,
        constants    = constants,
        stocks       = model_structure$deSolve_components$stocks)
