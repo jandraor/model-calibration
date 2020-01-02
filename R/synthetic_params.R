@@ -1,16 +1,14 @@
 produce_synthetic_params <- function() {
-  library(readr)
-  source("./graphs.R")
   
   # Data obtained S5 table from Mossong et al (2018)
   file                     <- "./data/contact_matrix_Finland.csv"
   raw_matrix               <- read_csv(file)
-  contact_matrix_Fin       <- as.matrix(raw_matrix[, -1]) %>% t()
+  raw_M_matrix             <- as.matrix(raw_matrix[, -1]) %>% t()
   age_cohorts              <- raw_matrix[, 1] %>% pull() 
-  colnames(contact_matrix_Fin)  <- age_cohorts   
-  row.names(contact_matrix_Fin) <- age_cohorts
+  colnames(raw_M_matrix)   <- age_cohorts   
+  row.names(raw_M_matrix)  <- age_cohorts
   
-  g_contacts_Fin <- draw_WAIFW(contact_matrix_Fin, "Finland's contact matrix")
+  g_raw_M_matrix <- draw_WAIFW(raw_M_matrix, "Finland's social contact matrix")
   
   raw_data <- read_csv("./data/Finland_population_data.csv") 
   
@@ -36,26 +34,39 @@ produce_synthetic_params <- function() {
   fin_pop <- fin_pop %>% 
     left_join(grouping_table, by = c("AgeGrp" = "five_yr_cohort"))
   
-  contacts_df <- melt(contact_matrix_Fin) %>% rename(from = Var1, to = Var2) %>% 
-    select(from, to, value) %>% 
-    left_join(fin_pop, by = c("from" = "AgeGrp")) %>% 
-    rename(from_group = group)
+  # Aggregated population by defined age groups
+  agg_pop <- fin_pop %>% group_by(group) %>% 
+    summarise(population = sum(PopTotal)) %>% ungroup()
   
-  grouped_contacts_df <- contacts_df %>% group_by(from_group, to) %>% 
+  total_pop <- sum(agg_pop$population)
+  
+  agg_pop$proportion <- agg_pop$population / total_pop
+  
+  agg_pop$trans_factor <- with(agg_pop, 1 / proportion)
+  
+  contacts_df <- melt(raw_M_matrix) %>% 
+    rename(contactor = Var1, contactee = Var2) %>% 
+    select(contactor, contactee, value) %>% 
+    left_join(fin_pop, by = c("contactor" = "AgeGrp")) %>% 
+    rename(contactor_group = group)
+  
+  grouped_contacts_df <- contacts_df %>% 
+    group_by(contactor_group, contactee) %>% 
     mutate(subpopulation = sum(PopTotal),
            weight = PopTotal / subpopulation,
            contacts_weighted = value * weight) %>% 
     summarise(contacts = sum(contacts_weighted)) %>% 
-    left_join(grouping_table, by = c("to" = "five_yr_cohort")) %>% 
-    rename(to_group = group) %>% group_by(from_group, to_group) %>% 
+    left_join(grouping_table, by = c("contactee" = "five_yr_cohort")) %>% 
+    rename(contactee_group = group) %>% 
+    group_by(contactor_group, contactee_group) %>% 
     summarise(contacts = sum(contacts))
   
   subtitle <- "Aggregated contacts"
   
-  g_grouped_contacts <- ggplot(
+  g_M_matrix <- ggplot(
     data = grouped_contacts_df, aes(
-      x = from_group,
-      y = ordered(to_group, levels = rev(sort(unique(to_group)))),
+      x = contactor_group,
+      y = ordered(contactee_group, levels = rev(sort(unique(contactee_group)))),
       fill = contacts)) + 
     geom_tile() +
     scale_fill_gradient(low = "lightblue", high = "darkblue") +
@@ -67,31 +78,46 @@ produce_synthetic_params <- function() {
           axis.text.x = element_text(size = 6),
           axis.text.y = element_text(size = 6))
   
-  wider_df <- pivot_wider(grouped_contacts_df, names_from = from_group, 
+  wider_df <- pivot_wider(grouped_contacts_df, names_from = contactor_group, 
                           values_from = contacts)
-  grouped_contact_matrix            <- wider_df[ , -1] %>% as.matrix()
-  rownames(grouped_contact_matrix ) <- colnames(grouped_contact_matrix)
+  # Social contact matrix
+  M_matrix <- wider_df[, -1] %>% as.matrix()
+  rownames(M_matrix) <- colnames(M_matrix)
   
-  #effective group contact matrix
-  infectivity <- 0.1
-  egc_matrix  <- grouped_contact_matrix * infectivity
+  C_matrix <- M_matrix * agg_pop$trans_factor
   
-  synthetic_population <- fin_pop %>% group_by(group) %>% 
-    summarise(population = sum(PopTotal)) %>% ungroup() %>% 
+  # Symmetric normalised age-specific contact rate
+  symmetric_C_matrix <- (C_matrix + t(C_matrix)) / 2
+  
+  # Social contact matrix corrected for reciprocity
+  corrected_M_matrix <- symmetric_C_matrix * (1 / agg_pop$trans_factor) 
+  
+  infectious_period <- 2 # days  
+  infectivity       <- 0.1
+  syn_pop_size      <- 1e4
+  
+  # Normalised age-specific effective contact rate
+  necr_matrix <- symmetric_C_matrix * infectivity
+  
+  synthetic_population <- agg_pop %>% 
     mutate(total_pop = sum(population),
            proportion = population / total_pop,
-           syn_pop = round(10000 * proportion)) %>% 
+           syn_pop = round(syn_pop_size * proportion)) %>% 
     select(group, syn_pop)
   
-  eigensystem    <- eigen(egc_matrix * 2)
-  theoretical_R0 <-  max(abs(eigensystem$values))
+  #=============================================================================
+  # Theoretical R0
+  #=============================================================================
+  next_generation_matrix <- corrected_M_matrix * infectious_period * infectivity
+  eigensystem            <- eigen(next_generation_matrix)
+  theoretical_R0         <-  max(Re(eigensystem$values))
   
-  syn_WAIFW <- egc_matrix / synthetic_population$syn_pop
+  syn_WAIFW <- necr_matrix / syn_pop_size 
   
   g_syn_WAIFW <- draw_WAIFW(syn_WAIFW * 1e5, "")
   
-  list(g_original_contacts = g_contacts_Fin,
-       g_aggregated_contacts = g_grouped_contacts,
+  list(g_original_contacts = g_raw_M_matrix,
+       g_M_matrix = g_M_matrix,
        synthetic_WAIFW = syn_WAIFW,
        g_syn_WAIFW = g_syn_WAIFW,
        syn_pop = synthetic_population,

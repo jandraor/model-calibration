@@ -191,16 +191,11 @@ stan_fit_2.1 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
 ```{r}
 source("./R/summarise_results.R")
 
-conceptual_matrix <- c("B11", "B12", "B13", "B14",
-                       "B21", "B22", "B23", "B24",
-                       "B31", "B32", "B33", "B34",
-                       "B41", "B42", "B43", "B44")
-
 specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
                    text_size = 2, ypos_interval = 13, 
                    title = "Matrix A", xlabel = "")
 
-summary_2.1 <- summarise_results(stan_fit_2.1, conceptual_matrix, 
+summary_2.1 <- summarise_results(stan_fit_2.1, conceptual_matrix_A, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_A$params)
 summary_2.1$g_WAIFW
@@ -245,16 +240,11 @@ stan_fit_2.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
 ```{r}
 source("./R/summarise_results.R")
 
-conceptual_matrix <- c("B11", "B12", "B13", "B14",
-                       "B12", "B22", "B23", "B24",
-                       "B13", "B23", "B33", "B34",
-                       "B14", "B24", "B34", "B44")
-
 specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
                    text_size = 2, ypos_interval = 24, 
                    title = "Matrix B", xlabel = "")
 
-summary_2.2 <- summarise_results(stan_fit_2.2, conceptual_matrix, 
+summary_2.2 <- summarise_results(stan_fit_2.2, conceptual_matrix_B, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_B$params)
 summary_2.2$g_WAIFW
@@ -298,16 +288,12 @@ stan_fit_2.3 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
 
 ```{r}
 source("./R/summarise_results.R")
-conceptual_matrix <- c("B11", "B11", "B33", "B44",
-                       "B11", "B22", "B33", "B44",
-                       "B33", "B33", "B33", "B44",
-                       "B44", "B44", "B44", "B44")
 
 specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
                    text_size = 2, ypos_interval = 24, 
                    title = "Matrix C", xlabel = "")
 
-summary_2.3 <- summarise_results(stan_fit_2.3, conceptual_matrix, 
+summary_2.3 <- summarise_results(stan_fit_2.3, conceptual_matrix_C, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_C$params)
 summary_2.3$g_WAIFW
