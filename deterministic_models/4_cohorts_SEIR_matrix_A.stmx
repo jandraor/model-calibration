@@ -2,7 +2,7 @@
 <xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0" xmlns:isee="http://iseesystems.com/XMILE">
 	<header>
 		<smile version="1.0" namespace="std, isee"/>
-		<name>4_cohorts_SEIR_full_params</name>
+		<name>4_cohorts_SEIR_matrix_A</name>
 		<uuid>ffbcc49e-da2a-45ff-a6b6-12aec91f0816</uuid>
 		<vendor>isee systems, inc.</vendor>
 		<product version="1.6.2" isee:build_number="1445" isee:saved_by_v1="true" lang="en">Stella Architect</product>
@@ -22,7 +22,7 @@
 	<model>
 		<variables>
 			<stock name="S1">
-				<eqn>0</eqn>
+				<eqn>949</eqn>
 				<outflow>IR1</outflow>
 			</stock>
 			<stock name="E1">
@@ -49,7 +49,7 @@
 				<eqn>I1 / recovery_time</eqn>
 			</flow>
 			<stock name="S2">
-				<eqn>0</eqn>
+				<eqn>1690</eqn>
 				<outflow>IR2</outflow>
 			</stock>
 			<stock name="E2">
@@ -76,7 +76,7 @@
 				<eqn>I2 / recovery_time</eqn>
 			</flow>
 			<stock name="S3">
-				<eqn>0</eqn>
+				<eqn>3466</eqn>
 				<outflow>IR3</outflow>
 			</stock>
 			<stock name="E3">
@@ -85,7 +85,7 @@
 				<outflow>InR3</outflow>
 			</stock>
 			<stock name="I3">
-				<eqn>0</eqn>
+				<eqn>1</eqn>
 				<inflow>InR3</inflow>
 				<outflow>RR3</outflow>
 			</stock>
@@ -94,7 +94,7 @@
 				<inflow>RR3</inflow>
 			</stock>
 			<flow name="IR3">
-				<eqn>S3 * (B31 * I1 + B32 * I2 + B33 * I3 + B34 * I4) /100000</eqn>
+				<eqn>S3 * (B31 * I1 + B32 * I2 + B33 * I3 + B34 * I4) / 100000</eqn>
 			</flow>
 			<flow name="InR3">
 				<eqn>E3 / latent_period</eqn>
@@ -103,7 +103,7 @@
 				<eqn>I3 / recovery_time</eqn>
 			</flow>
 			<stock name="S4">
-				<eqn>0</eqn>
+				<eqn>1893</eqn>
 				<outflow>IR4</outflow>
 			</stock>
 			<stock name="E4">
@@ -112,7 +112,7 @@
 				<outflow>InR4</outflow>
 			</stock>
 			<stock name="I4">
-				<eqn>0</eqn>
+				<eqn>1</eqn>
 				<inflow>InR4</inflow>
 				<outflow>RR4</outflow>
 			</stock>
@@ -136,49 +136,49 @@
 				<eqn>0.14285714</eqn>
 			</aux>
 			<aux name="B12">
-				<eqn>0</eqn>
+				<eqn>B11</eqn>
 			</aux>
 			<aux name="B11">
 				<eqn>0</eqn>
 			</aux>
 			<aux name="B13">
-				<eqn>0</eqn>
+				<eqn>B33</eqn>
 			</aux>
 			<aux name="B14">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B21">
-				<eqn>0</eqn>
+				<eqn>B11</eqn>
 			</aux>
 			<aux name="B22">
 				<eqn>0</eqn>
 			</aux>
 			<aux name="B23">
-				<eqn>0</eqn>
+				<eqn>B33</eqn>
 			</aux>
 			<aux name="B24">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B31">
-				<eqn>0</eqn>
+				<eqn>B33</eqn>
 			</aux>
 			<aux name="B32">
-				<eqn>0</eqn>
+				<eqn>B33</eqn>
 			</aux>
 			<aux name="B33">
 				<eqn>0</eqn>
 			</aux>
 			<aux name="B34">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B41">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B42">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B43">
-				<eqn>0</eqn>
+				<eqn>B44</eqn>
 			</aux>
 			<aux name="B44">
 				<eqn>0</eqn>
@@ -260,6 +260,42 @@
 					<in>I4</in>
 					<in>recovery_time</in>
 				</var>
+				<var name="B12">
+					<in>B11</in>
+				</var>
+				<var name="B13">
+					<in>B33</in>
+				</var>
+				<var name="B14">
+					<in>B44</in>
+				</var>
+				<var name="B21">
+					<in>B11</in>
+				</var>
+				<var name="B23">
+					<in>B33</in>
+				</var>
+				<var name="B24">
+					<in>B44</in>
+				</var>
+				<var name="B31">
+					<in>B33</in>
+				</var>
+				<var name="B32">
+					<in>B33</in>
+				</var>
+				<var name="B34">
+					<in>B44</in>
+				</var>
+				<var name="B41">
+					<in>B44</in>
+				</var>
+				<var name="B42">
+					<in>B44</in>
+				</var>
+				<var name="B43">
+					<in>B44</in>
+				</var>
 			</isee:dependencies>
 		</variables>
 		<views>
@@ -302,7 +338,7 @@
 				<isee:spatial_map color="black" background="white" font_size="12pt"/>
 				<isee:animation_object color="black" background="white" font_size="12pt"/>
 			</style>
-			<view isee:show_pages="false" page_width="818" page_height="575" isee:page_cols="2" isee:page_rows="3" isee:scroll_y="632" isee:popup_graphs_are_comparative="true" type="stock_flow">
+			<view isee:show_pages="false" page_width="856" page_height="581" isee:page_cols="2" isee:page_rows="3" isee:scroll_y="660" isee:popup_graphs_are_comparative="true" type="stock_flow">
 				<style color="black" background="white" font_style="normal" font_weight="normal" text_decoration="none" text_align="center" vertical_text_align="center" font_color="black" font_family="Arial" font_size="10pt" padding="2" border_color="black" border_width="thin" border_style="none">
 					<stock color="blue" background="white" font_color="blue" font_size="9pt" label_side="top">
 						<shape type="rectangle" width="45" height="35"/>
@@ -739,6 +775,74 @@
 						</plot>
 					</graph>
 				</stacked_container>
+				<connector uid="78" angle="178.203">
+					<from>B11</from>
+					<to>B12</to>
+				</connector>
+				<connector uid="79" angle="0">
+					<from>
+						<alias uid="80"/>
+					</from>
+					<to>B13</to>
+				</connector>
+				<connector uid="81" angle="180">
+					<from>
+						<alias uid="82"/>
+					</from>
+					<to>B14</to>
+				</connector>
+				<connector uid="83" angle="337.483">
+					<from>
+						<alias uid="84"/>
+					</from>
+					<to>B21</to>
+				</connector>
+				<connector uid="85" angle="90">
+					<from>
+						<alias uid="86"/>
+					</from>
+					<to>B23</to>
+				</connector>
+				<connector uid="87" angle="91.116">
+					<from>
+						<alias uid="88"/>
+					</from>
+					<to>B24</to>
+				</connector>
+				<connector uid="89" angle="270">
+					<from>
+						<alias uid="90"/>
+					</from>
+					<to>B31</to>
+				</connector>
+				<connector uid="91" angle="322.221">
+					<from>
+						<alias uid="90"/>
+					</from>
+					<to>B32</to>
+				</connector>
+				<connector uid="92" angle="93.9452">
+					<from>
+						<alias uid="93"/>
+					</from>
+					<to>B34</to>
+				</connector>
+				<connector uid="94" angle="272.46">
+					<from>
+						<alias uid="95"/>
+					</from>
+					<to>B41</to>
+				</connector>
+				<connector uid="96" angle="320.459">
+					<from>
+						<alias uid="95"/>
+					</from>
+					<to>B42</to>
+				</connector>
+				<connector uid="97" angle="178.369">
+					<from>B44</from>
+					<to>B43</to>
+				</connector>
 				<alias font_style="italic" uid="10" x="342.375" y="161" width="51.25" height="10">
 					<shape type="name_only"/>
 					<of>latent_period</of>
@@ -818,6 +922,38 @@
 				</alias>
 				<alias font_style="italic" uid="76" x="84.5" y="775.5" width="45" height="35">
 					<of>I3</of>
+				</alias>
+				<alias font_style="italic" uid="80" x="79.875" y="215" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<alias font_style="italic" uid="82" x="215.25" y="219" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<alias font_style="italic" uid="84" x="100.625" y="251" width="17.25" height="10">
+					<shape type="name_only"/>
+					<of>B11</of>
+				</alias>
+				<alias font_style="italic" uid="86" x="151.5" y="489" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<alias font_style="italic" uid="88" x="197" y="489" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<alias font_style="italic" uid="90" x="149.75" y="598" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B33</of>
+				</alias>
+				<alias font_style="italic" uid="93" x="190.875" y="839" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
+				</alias>
+				<alias font_style="italic" uid="95" x="146.5" y="951" width="18.25" height="10">
+					<shape type="name_only"/>
+					<of>B44</of>
 				</alias>
 			</view>
 		</views>
