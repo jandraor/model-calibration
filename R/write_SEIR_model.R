@@ -1,6 +1,11 @@
 write_SEIR_model <- function(matrix_type, filename, stocks, params_prior) {
   source("./stan_utils.R")
   
+  if(matrix_type == "sym") {
+    model_file   <- "./deterministic_models/4_cohorts_SEIR_matrix_sym.stmx"
+    ODE_fun_name <- "SEIR_matrix_sym"
+  }
+  
   if(matrix_type == "A") {
     model_file   <- "./deterministic_models/4_cohorts_SEIR_matrix_A.stmx"
     ODE_fun_name <- "SEIR_matrix_A"

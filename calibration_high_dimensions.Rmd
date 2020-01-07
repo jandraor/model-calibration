@@ -20,6 +20,9 @@ library(rstan)
 library(rethinking)
 library(stringr)
 library(ggsci)
+library(readr)
+library(MLmetrics)
+library(ggalt)
 devtools::load_all("../R_packages/readsdr")
 source("./graphs.R")
 ```
@@ -40,7 +43,7 @@ output_sp$g_original_contacts
 ## 1.1.2 Average contacts per age group - aggregated
 
 ```{r, fig.height = 2.5, fig.width = 3, fig.align= "center"}
-output_sp$g_aggregated_contacts
+output_sp$g_M_matrix
 ```
 
 
@@ -95,20 +98,27 @@ output_gsi$g_incidences
 ```{r}
 age_groups <- c("0-4", "5-14", "15-64", "65+")
 
-conceptual_matrix_A <- c("B11", "B12", "B13", "B14",
-                         "B21", "B22", "B23", "B24",
-                         "B31", "B32", "B33", "B34",
-                         "B41", "B42", "B43", "B44")
+# Symmetrical matrix
+conceptual_matrix_sym <- c("B11", "B12", "B13", "B14",
+                           "B12", "B22", "B23", "B24",
+                           "B13", "B23", "B33", "B34",
+                           "B14", "B24", "B34", "B44")
 
-conceptual_matrix_B <- c("B11", "B12", "B13", "B14",
-                         "B12", "B22", "B23", "B24",
-                         "B13", "B23", "B33", "B34",
-                         "B14", "B24", "B34", "B44")
-
-conceptual_matrix_C <- c("B11", "B11", "B33", "B44",
+# Kannan & Farrington (2005)
+conceptual_matrix_A <- c("B11", "B11", "B33", "B44",
                          "B11", "B22", "B33", "B44",
                          "B33", "B33", "B33", "B44",
                          "B44", "B44", "B44", "B44")
+
+conceptual_matrix_B <- c("B11", "B11", "B11", "B11",
+                         "B11", "B22", "B22", "B22",
+                         "B11", "B22", "B33", "B44",
+                         "B11", "B22", "B44", "B44")
+
+conceptual_matrix_C <- c("B11", "B22", "B13", "B22",
+                         "B22", "B22", "B22", "B22",
+                         "B13", "B22", "B44", "B44",
+                         "B22", "B22", "B44", "B44")
 
 conceptual_matrix_D <- c("B11", "B44", "B44", "B44",
                          "B44", "B22", "B44", "B44",
@@ -116,12 +126,13 @@ conceptual_matrix_D <- c("B11", "B44", "B44", "B44",
                          "B44", "B44", "B44", "B44")
 
 # Conceptual matrix list
-cm_list <- list(conceptual_matrix_A, conceptual_matrix_B, conceptual_matrix_C,
+cm_list <- list(conceptual_matrix_sym, conceptual_matrix_A, conceptual_matrix_B, conceptual_matrix_C,
                 conceptual_matrix_D)
 
 titles <- c(
-  "Matrix A - 16 parameters",
-  "Matrix B - 10 parameters",
+  "Symmetric matrix - 10 parameters",
+  "Matrix A - 4 parameters",
+  "Matrix B - 4 parameters",
   "Matrix C - 4 parameters",
   "Matrix D - 4 parameters")
 
@@ -136,14 +147,9 @@ g_cm <- map2(cm_list, titles, function(cm, gtitle) {
        aes(x = Var1, y = ordered(Var2, levels = rev(sort(unique(Var2)))))) + 
     geom_tile(aes(fill = value), colour = "black") +
     geom_text(aes(label = value), colour = "white", size = 5)
+    
+  g_matrix <- g_matrix + scale_fill_manual(values = colours) 
   
-  if(length(unique(cm)) > 10) {
-    g_matrix <- g_matrix + scale_fill_grey()
-  }
-  
-  if(length(unique(cm)) <= 10) {
-    g_matrix <- g_matrix + scale_fill_manual(values = colours) 
-  }
     
   g_matrix <- g_matrix +
     theme_minimal() + 
@@ -152,25 +158,28 @@ g_cm <- map2(cm_list, titles, function(cm, gtitle) {
 })
 
 
-grid.arrange(g_cm[[1]], g_cm[[2]], g_cm[[3]], g_cm[[4]], ncol = 2)
+g_matrices <- grid.arrange(g_cm[[1]], g_cm[[2]], g_cm[[3]], g_cm[[4]], g_cm[[5]], ncol = 2)
+print(g_matrices)
+
+ggsave("./plots/g_matrices.png", dpi = "print", height = 5, width = 5, 
+       plot = g_matrices)
 ```
 
 
 ## 2.2 Through Stan
 
 
+## 2.2.1 Symmetric matrix
 
-## 2.2.1 Matrix A
-
-```{r stan_fit_A, cache = TRUE}
+```{r stan_fit_sym, cache = TRUE}
 source("./R/write_SEIR_model.R")
 
 filename     <- "SEIR_2.1.stan"
-params_prior <- "  params ~ normal(0, 25)"
-o_SEIR_A     <- write_SEIR_model("A", filename, output_gsi$stocks, params_prior)
+params_prior <- "  params ~ normal(0, 100)"
+o_SEIR_sym   <- write_SEIR_model("sym", filename, output_gsi$stocks, params_prior)
 
 stan_d <- list(n_obs    = length_data,
-              n_params = 16, 
+              n_params = length(unique(conceptual_matrix_sym)), 
               n_difeq  = 16, # number of differential equations
               y1       = age_0_4_data,
               y2       = age_5_14_data,
@@ -184,7 +193,7 @@ test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
-stan_fit_2.1 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+stan_fit_sym <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
                    iter   = 2000, cores  = 3, seed = 936357172, refresh = 5)
 ```
 
@@ -193,11 +202,11 @@ source("./R/summarise_results.R")
 
 specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
                    text_size = 2, ypos_interval = 13, 
-                   title = "Matrix A", xlabel = "")
+                   title = "Symmetric matrix", xlabel = "")
 
-summary_2.1 <- summarise_results(stan_fit_2.1, conceptual_matrix_A, 
+summary_2.1 <- summarise_results(stan_fit_sym, conceptual_matrix_sym, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
-                        specs_list, o_SEIR_A$params)
+                        specs_list, o_SEIR_sym$params)
 summary_2.1$g_WAIFW
 ```
 
@@ -209,17 +218,17 @@ summary_2.1$g_comparison
 summary_2.1$g_rNougths
 ```
 
-## 2.2 Matrix B
+## 2.2.2 Matrix A
 
-```{r stan_fit_B, cache = TRUE}
+```{r stan_fit_A, cache = TRUE}
 source("./R/write_SEIR_model.R")
 
 filename     <- "SEIR_2.2.stan"
-params_prior <- "  params ~ normal(0, 1000)"
-o_SEIR_B     <- write_SEIR_model("B", filename, output_gsi$stocks, params_prior)
+params_prior <- "  params ~ normal(0, 100)"
+o_SEIR_A     <- write_SEIR_model("A", filename, output_gsi$stocks, params_prior)
 
 stan_d <- list(n_obs    = length_data,
-              n_params = 10, 
+              n_params = length(unique(conceptual_matrix_A)), 
               n_difeq  = 16, # number of differential equations
               y1       = age_0_4_data,
               y2       = age_5_14_data,
@@ -233,7 +242,7 @@ test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
-stan_fit_2.2 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+stan_fit_A <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
                    iter   = 2000, cores  = 3, seed = 1677265155, refresh = 5)
 ```
 
@@ -242,11 +251,11 @@ source("./R/summarise_results.R")
 
 specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
                    text_size = 2, ypos_interval = 24, 
-                   title = "Matrix B", xlabel = "")
+                   title = "Matrix A", xlabel = "")
 
-summary_2.2 <- summarise_results(stan_fit_2.2, conceptual_matrix_B, 
+summary_2.2 <- summarise_results(stan_fit_A, conceptual_matrix_A, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
-                        specs_list, o_SEIR_B$params)
+                        specs_list, o_SEIR_A$params)
 summary_2.2$g_WAIFW
 ```
 
@@ -259,11 +268,59 @@ summary_2.2$g_comparison
 summary_2.2$g_rNougths
 ```
 
-## 2.3 Matrix C
+## 2.2.3 Matrix B
+
+```{r stan_fit_B, cache = TRUE}
+source("./R/write_SEIR_model.R")
+filename     <- "SEIR_2.3.stan"
+params_prior <- "  params ~ normal(0, 100)"
+o_SEIR_B     <- write_SEIR_model("B", filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(o_SEIR_B$params), 
+              n_difeq  = 16, # number of differential equations
+              y1       = age_0_4_data,
+              y2       = age_5_14_data,
+              y3       = age_15_44_data,
+              y4       = age_45_over_data,
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_B <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 1298600912, refresh = 5)
+```
+
+```{r}
+source("./R/summarise_results.R")
+
+specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
+                   text_size = 2, ypos_interval = 24, 
+                   title = "Matrix C", xlabel = "")
+
+summary_2.3 <- summarise_results(stan_fit_B, conceptual_matrix_B, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_B$params)
+summary_2.3$g_WAIFW
+```
+
+```{r}
+summary_2.3$g_comparison
+```
+
+```{r}
+summary_2.3$g_rNougths
+```
+
+### 2.2.4 Matrix C
 
 ```{r stan_fit_C, cache = TRUE}
 source("./R/write_SEIR_model.R")
-filename     <- "SEIR_2.3.stan"
+filename     <- "SEIR_2.4.stan"
 params_prior <- "  params ~ normal(0, 100)"
 o_SEIR_C     <- write_SEIR_model("C", filename, output_gsi$stocks, params_prior)
 
@@ -282,36 +339,36 @@ test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
-stan_fit_2.3 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                   iter   = 2000, cores  = 3, seed = 1298600912, refresh = 5)
+stan_fit_C <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 615190292, refresh = 5)
 ```
 
 ```{r}
 source("./R/summarise_results.R")
 
-specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26, 
-                   text_size = 2, ypos_interval = 24, 
-                   title = "Matrix C", xlabel = "")
+specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26,
+                     text_size = 2, ypos_interval = 24, 
+                     title = "Matrix C", xlabel = "")
 
-summary_2.3 <- summarise_results(stan_fit_2.3, conceptual_matrix_C, 
+summary_2.4 <- summarise_results(stan_fit_C, conceptual_matrix_C, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_C$params)
-summary_2.3$g_WAIFW
+summary_2.4$g_WAIFW
 ```
 
 ```{r}
-summary_2.3$g_comparison
+summary_2.4$g_comparison
 ```
 
 ```{r}
-summary_2.3$g_rNougths
+summary_2.4$g_rNougths
 ```
 
-## 2.4 Matrix D
+### 2.2.5 Matrix D
 
 ```{r stan_fit_D, cache = TRUE}
 source("./R/write_SEIR_model.R")
-filename     <- "SEIR_2.4.stan"
+filename     <- "SEIR_D.stan"
 params_prior <- "  params ~ normal(0, 100)"
 o_SEIR_D     <- write_SEIR_model("D", filename, output_gsi$stocks, params_prior)
 
@@ -330,9 +387,10 @@ test <- stan(filename, data = stan_d, chains = 1, iter = 10,
                verbose = FALSE, refresh = 0)
 
 # Fit and sample from the posterior
-stan_fit_2.4 <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                   iter   = 2000, cores  = 3, seed = 615190292, refresh = 5)
+stan_fit_D <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 12011989, refresh = 5)
 ```
+
 
 ```{r}
 source("./R/summarise_results.R")
@@ -341,178 +399,147 @@ specs_list <- list(x_pos = 2.25, ypos_mean = 28, ypos_median = 26,
                      text_size = 2, ypos_interval = 24, 
                      title = "Matrix D", xlabel = "")
 
-summary_2.4 <- summarise_results(stan_fit_2.4, conceptual_matrix_D, 
+summary_2.5 <- summarise_results(stan_fit_D, conceptual_matrix_D, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_D$params)
-summary_2.4$g_WAIFW
+summary_2.5$g_WAIFW
 ```
 
 ```{r}
-summary_2.4$g_comparison
+summary_2.5$g_comparison
 ```
 
 ```{r}
-summary_2.4$g_rNougths
+summary_2.5$g_rNougths
 ```
 
-## 2.5 $R_{0}$ estimation
-
-```{r}
+```{r stan_r_noughts}
 matrices <- paste0("Matrix ", LETTERS[1:4])
 
-R_estimations <- data.frame(matrix = matrices, 
-                            R0 = c(summary_2.1$mean_rNought,
-                                   summary_2.2$mean_rNought,
-                                   summary_2.3$mean_rNought,
-                                   summary_2.4$mean_rNought))
-
-ggplot(R_estimations, aes(x = matrix, y = R0)) +
-  geom_point() +
-  geom_hline(yintercept = output_sp$theoretical_R0, linetype = "dashed") +
-  theme_test()
+R_estimations_stan <- data.frame(matrix = c("Symmetric", matrices), 
+                            R0 = c(
+                              summary_2.1$mean_rNought,
+                              summary_2.2$mean_rNought,
+                              summary_2.3$mean_rNought,
+                              summary_2.4$mean_rNought,
+                              summary_2.5$mean_rNought),
+                            lower.bound = c(
+                              summary_2.1$lower_bound,
+                              summary_2.2$lower_bound,
+                              summary_2.3$lower_bound,
+                              summary_2.4$lower_bound,
+                              summary_2.5$lower_bound),
+                            upper.bound = c(
+                              summary_2.1$upper_bound,
+                              summary_2.2$upper_bound,
+                              summary_2.3$upper_bound,
+                              summary_2.4$upper_bound,
+                              summary_2.5$upper_bound),
+                            method = "Hamiltonian Monte Carlo")
 ```
 
-# 3. Calibration by optimisation
+```{r MSE_timeseries_stan}
+matrices <- paste0("Matrix ", LETTERS[1:4])
 
-## 3.2 Matrix B
+MSE_ts_stan <- data.frame(matrix = c("Symmetric", matrices), 
+                            MSE = c(
+                              summary_2.1$MSE,
+                              summary_2.2$MSE,
+                              summary_2.3$MSE,
+                              summary_2.4$MSE,
+                              summary_2.5$MSE),
+                            method = "Hamiltonian Monte Carlo")
+```
+
+## 2.3 By optimisation
+
+## 2.3.1 Symmetric matrix
+
+```{r optim_sym, cache = TRUE}
+source("./R/optimise_SEIR.R")
+
+optim_fit_sym <- optimise_SEIR("sym", data_list, init.WAIFW = 15)
+```
+
+
+```{r}
+source("./R/summarise_optim_fit.R")
+summary_optim_sym <- summarise_optim_fit(optim_fit_sym, incidence_data, 
+                                       conceptual_matrix_sym, 
+                                       output_sp$syn_pop$syn_pop)
+summary_optim_sym$g_comparison
+```
+
+## 2.3.2 Matrix A
+
+```{r optim_A, cache = TRUE}
+source("./R/optimise_SEIR.R")
+
+optim_fit_A <- optimise_SEIR("A", data_list)
+```
+
+```{r}
+source("./R/summarise_optim_fit.R")
+summary_optim_A <- summarise_optim_fit(optim_fit_A, incidence_data, 
+                                       conceptual_matrix_A, 
+                                       output_sp$syn_pop$syn_pop)
+summary_optim_A$g_comparison
+```
+
+```{r}
+summary_optim_sym$g_WAIFW
+```
+
+
+```{r}
+summary_optim_A$g_WAIFW
+```
+
+## 2.3.3 Matrix B
 
 ```{r optim_B, cache = TRUE}
 source("./R/optimise_SEIR.R")
 
-optim_fit_B <- optimise_SEIR("B", data_list)
+optim_fit_B <- optimise_SEIR("B", data_list, init.WAIFW = 15)
 ```
 
 ```{r}
+source("./R/summarise_optim_fit.R")
 summary_optim_B <- summarise_optim_fit(optim_fit_B, incidence_data, 
                                        conceptual_matrix_B, 
                                        output_sp$syn_pop$syn_pop)
 summary_optim_B$g_comparison
 ```
-
-
 ```{r}
 summary_optim_B$g_WAIFW
 ```
 
-## 3.3 Matrix C
+## 2.3.4 Matrix C
 
-```{r, cache = TRUE}
-model_file <- "./deterministic_models/4_cohorts_SEIR_matrix_C.stmx"
-mdl        <- read_xmile(model_file)
-ds_consts  <- mdl$deSolve_components$consts
-ds_func    <- mdl$deSolve_components$func
-ds_stocks  <- output_gsi$stocks
-constant_names <- names(ds_consts)
-si_pars        <- c("recovery_time", "latent_period")
-params         <- constant_names[!constant_names%in% si_pars ] %>% sort()
+```{r optim_C, cache = TRUE}
+source("./R/optimise_SEIR.R")
 
-# Create time vector
-simtime <- seq(0, 50, by = 1 / 128)
+optim_fit_C <- optimise_SEIR("C", data_list, init.WAIFW = 20)
+```
 
-generate_Mtx_C_inc <- function() {
-  
-  function(pars) {
-    ds_consts["latent_period"] <- 1
-    ds_consts["recovery_time"] <- 2
-    ds_consts["B11"]  <- pars[[1]]
-    ds_consts["B22"]  <- pars[[2]]
-    ds_consts["B33"]  <- pars[[3]]
-    ds_consts["B44"]  <- pars[[4]]
-    
-    o <- ode(
-      y     = ds_stocks, times = simtime,
-      func  = ds_func,
-      parms = ds_consts, method = "rk4") %>% data.frame() %>% 
-      filter(time - trunc(time) == 0) %>% 
-    mutate(eI1 = I1 + R1, 
-           incidence1 = eI1 - lag(eI1, default = eI1[1]),
-           incidence1 = round(incidence1),
-           eI2 = I2 + R2, 
-           incidence2 = eI2 - lag(eI2, default = eI2[1]),
-           incidence2 = round(incidence2),
-           eI3 = I3 + R3, 
-           incidence3 = eI3 - lag(eI3, default = eI3[1]),
-           incidence3 = round(incidence3),
-           eI4 = I4 + R4, 
-           incidence4 = eI4 - lag(eI4, default = eI4[1]),
-           incidence4 = round(incidence4)) %>% 
-    select(time, contains("incidence")) %>% 
-    filter(time != 0)
-   }
-}
+```{r}
+source("./R/summarise_optim_fit.R")
+summary_optim_C <- summarise_optim_fit(optim_fit_C, incidence_data, 
+                                       conceptual_matrix_C, 
+                                       output_sp$syn_pop$syn_pop)
+summary_optim_C$g_comparison
+```
 
-Mtx_C_inc <- generate_Mtx_C_inc()
+```{r}
+summary_optim_C$g_WAIFW
+```
 
-poisson.loglik <-  function (params) {
-  sim_incidences <- Mtx_C_inc(params)
-  
-  lik1 <- -1 * sum(dpois(lambda = sim_incidences$incidence1 + 0.000001, x = age_0_4_data, 
-                         log = TRUE))
-  
-  lik2 <- -1 * sum(dpois(lambda = sim_incidences$incidence2 + 0.000001, x = age_5_14_data, 
-                         log = TRUE))
-  
-  lik3 <- -1 * sum(dpois(lambda = sim_incidences$incidence3 + 0.000001, x = age_15_44_data, 
-                         log = TRUE))
-  
-  lik4 <- -1 * sum(dpois(lambda = sim_incidences$incidence4 + 0.000001 , x = age_45_over_data, 
-                         log = TRUE))
-  
-  sum(lik1, lik2, lik3, lik4)
-}
-
-  optim_fit <- optim(par = c(20, 20, 20, 20), 
-                     fn = poisson.loglik, 
-                     method = "Nelder-Mead")
-  
-  translation_df <- tibble(
-    index_group = 1:4,
-    var_incidence = paste0("incidence", 1:4),
-    age_group = age_groups <- c("00-04", "05-14", "15-44", "45+"))
-  
-  sim_df <- Mtx_C_inc(optim_fit$par) %>%
-    pivot_longer(-time, names_to = "var_incidence", values_to = "incidence") %>% 
-    mutate(source = "sim data") %>% left_join(translation_df) %>% 
-    select(-var_incidence, index_group)
-  
-  actual_df <- incidence_data %>% left_join(translation_df) %>% 
-    select(-var_incidence, -index_group) %>% mutate(source = "syn_data")
-  
-  comparison_df <- bind_rows(actual_df, sim_df)
-  
-  ggplot(comparison_df, aes(x = time, y = incidence)) +
-    geom_line(aes(group = source, colour = source)) +
-    scale_colour_manual(values = c("steelblue", "grey")) +
-    facet_wrap(~age_group) +
-    theme_test()
-  
-conceptual_matrix <- c("B11", "B11", "B33", "B44",
-                       "B11", "B22", "B33", "B44",
-                       "B33", "B33", "B33", "B44",
-                       "B44", "B44", "B44", "B44")
-param_estimates <- optim_fit$par
-names(param_estimates) <- params
-WAIFW_estimates <- sapply(
-  conceptual_matrix, function(Bij, row) row[[Bij]], row = param_estimates) %>%
-  matrix(nrow = 4, byrow = T)
-
-age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
-colnames(WAIFW_estimates) <- rownames(WAIFW_estimates) <- age_groups
-g_WAIFW <- draw_WAIFW(WAIFW_estimates, "title")
-print(g_WAIFW)
-
-next_gen_matrix <- WAIFW_estimates / 1e5 * output_sp$syn_pop$syn_pop * 2
-eigensystem     <- eigen(next_gen_matrix)
-max(abs(eigensystem$values))
-``` 
-
-
-## 3.4 Matrix D
+## 2.3.5 Matrix D
 
 ```{r optim_D, cache = TRUE}
 source("./R/optimise_SEIR.R")
 
-optim_fit_D <- optimise_SEIR("D", data_list)
+optim_fit_D <- optimise_SEIR("D", data_list, init.WAIFW = 35)
 ```
 
 ```{r}
@@ -529,19 +556,99 @@ summary_optim_D$g_comparison
 summary_optim_D$g_WAIFW
 ```
 
-## 3.5 $R_{0}$ estimation
+
+
+```{r optim_r_noughts}
+matrices <- paste0("Matrix ", LETTERS[1:4])
+
+R_estimations_optim <- data.frame(matrix = c("Symmetric", matrices), 
+                            R0 = c(
+                              summary_optim_sym$R_nought,
+                              summary_optim_A$R_nought,
+                              summary_optim_B$R_nought,
+                              summary_optim_C$R_nought,
+                              summary_optim_D$R_nought),
+                            method = "MLE")
+```
+
+```{r MSE_timeseries_optim}
+matrices <- paste0("Matrix ", LETTERS[1:4])
+
+MSE_ts_optim <- data.frame(matrix = c("Symmetric", matrices), 
+                            MSE = c(
+                              summary_optim_sym$MSE,
+                              summary_optim_A$MSE,
+                              summary_optim_B$MSE,
+                              summary_optim_C$MSE,
+                              summary_optim_D$MSE),
+                            method = "MLE")
+```
+
+## 2.4 Incidence goodness of fit
 
 ```{r}
-matrices <- paste0("Matrix ", LETTERS[c(2,4)])
+MSE_ts <- bind_rows(MSE_ts_optim, MSE_ts_stan)
 
-R_estimations <- data.frame(matrix = matrices, 
-                            R0 = c(summary_optim_B$R_nought,
-                                   summary_optim_D$R_nought))
+ggplot(MSE_ts, aes(x = matrix, y = MSE)) +
+  geom_lollipop() +
+  coord_flip() +
+  geom_text(aes(label = round(MSE, 0)), nudge_y = 50, size = 3) +
+  facet_wrap(~ method)
+```
 
-ggplot(R_estimations, aes(x = matrix, y = R0)) +
+
+
+## 2.5 $R_{0}$ estimation
+
+```{r}
+
+R_nought_est <- bind_rows(R_estimations_stan, R_estimations_optim)
+
+ggplot(R_nought_est, aes(x = matrix, y = R0)) +
   geom_point() +
+  geom_errorbar(aes(ymin = lower.bound, ymax = upper.bound), width =.1) +
   geom_hline(yintercept = output_sp$theoretical_R0, linetype = "dashed") +
-  theme_test()
+  scale_y_continuous(limits = c(2, 2.3)) +
+  facet_wrap(~method) +
+  theme_test() +
+  labs(x = "Structure")
+```
+
+## 2.6 MSE in WAIFW's
+
+```{r}
+stan_WAIFWs <- list(summary_2.1$WAIFW, summary_2.2$WAIFW,
+                       summary_2.3$WAIFW, summary_2.4$WAIFW,
+                       summary_2.5$WAIFW)
+
+actual_WAIFW <- as.vector(output_sp$synthetic_WAIFW) * 1e5
+
+MSE_stan <- map_dbl(stan_WAIFWs, function(WAIFW, actual_WAIFW) {
+  MSE(as.vector(WAIFW), actual_WAIFW)
+}, actual_WAIFW = actual_WAIFW)
+
+MSE_stan_df <- tibble(matrix = c("Symmetric", matrices),
+                      MSE = MSE_stan,
+                      method = "Hamiltonian Monte Carlo")
+
+optim_WAIFWs <- list(summary_optim_sym$WAIFW, summary_optim_A$WAIFW,
+                     summary_optim_B$WAIFW, summary_optim_C$WAIFW,
+                     summary_optim_D$WAIFW)
+
+MSE_optim <- map_dbl(optim_WAIFWs, function(WAIFW, actual_WAIFW) {
+  MSE(as.vector(WAIFW), actual_WAIFW)
+}, actual_WAIFW = actual_WAIFW)
+
+MSE_optim_df <- tibble(matrix = c("Symmetric", matrices),
+                      MSE = MSE_optim,
+                      method = "MLE")
+
+MSE_df <- bind_rows(MSE_stan_df, MSE_optim_df)
+
+ggplot(MSE_df, aes(x = matrix, y = MSE)) +
+  geom_lollipop() +
+  coord_flip() +
+  facet_wrap(~ method)
 ```
 
 

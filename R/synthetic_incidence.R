@@ -1,6 +1,6 @@
 generate_synthetic_incidence <- function(output_sp) {
   
-  model_file <- "./deterministic_models/4_cohorts_SEIR_matrix_A.stmx"
+  model_file <- "./deterministic_models/4_cohorts_SEIR_matrix_full.stmx"
   model_structure <- read_xmile(model_file)
   syn_WAIFW <- output_sp$synthetic_WAIFW * 1e5
   constants <- names(model_structure$deSolve_components$consts)

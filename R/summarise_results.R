@@ -84,7 +84,17 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
     facet_wrap(~variable) +
     theme_test()
   
-  #============================================================================
+  #=============================================================================
+  
+  MSE_per_ag <- map_dbl(age_groups, function(ag, comparison_data) {
+    
+    ag_data  <- comparison_data %>% filter(variable == ag)
+    syn_data <- ag_data %>% filter(source == "syn data") %>% pull(value)
+    sim_data <- ag_data %>% filter(source == "sim data") %>% pull(value)
+    MSE(sim_data, syn_data)
+    
+  }, comparison_data = comparison_data)
+  #=============================================================================
  
   r_noughts <- sapply(1:nrow(param_samples), function(i) {
     row <- param_samples[i, ]
@@ -96,10 +106,16 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
     max(abs(eigensystem$values))
   })
   
+  credible_interval <- HPDI(r_noughts, prob = 0.95)
+  
   g_rNougths <- draw_density(r_noughts, specs_list)
   
   list(g_WAIFW = g_WAIFW,
+       WAIFW = normalised_WAIFW,
        g_comparison = g_comparison,
        g_rNougths = g_rNougths,
-       mean_rNought = mean(r_noughts))
+       mean_rNought = mean(r_noughts),
+       lower_bound  = credible_interval[[1]],
+       upper_bound  = credible_interval[[2]],
+       MSE = sum(MSE_per_ag))
 }

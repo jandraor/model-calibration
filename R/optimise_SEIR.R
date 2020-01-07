@@ -1,4 +1,4 @@
-optimise_SEIR <- function(matrix_type, data_list) {
+optimise_SEIR <- function(matrix_type, data_list, init.WAIFW = 20) {
   
   age_0_4_data     <- data_list$age_0_4_data
   age_5_14_data    <- data_list$age_5_14_data
@@ -74,7 +74,7 @@ optimise_SEIR <- function(matrix_type, data_list) {
     sum(lik1, lik2, lik3, lik4)
   }
   
-  optim_fit <- optim(par = rep(20, length(params)), 
+  optim_fit <- optim(par = rep(init.WAIFW, length(params)), 
                      fn = poisson.loglik, 
                      method = "Nelder-Mead")
   
