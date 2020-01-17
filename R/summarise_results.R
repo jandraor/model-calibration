@@ -1,5 +1,6 @@
 summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes, 
-                              specs_list, unique_params, cumulative = FALSE) {
+                              specs_list, unique_params, cumulative = FALSE,
+                              stochastic = FALSE) {
   source("./graphs.R")
   
   age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
@@ -20,21 +21,13 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
   
   g_WAIFW <- draw_WAIFW(normalised_WAIFW, "title")
   
-  #============================================================================
-  translation_df <- data.frame(index_group = 1:4, variable = age_groups)
+  #=============================================================================
+  age_groups <- c("00-04", "05-14", "15-44", "45+")
+  translation_df <- data.frame(index_group = 1:4, 
+                               age_group = c("00-04", "5-14", "15-44", "45+"))
   
   if(cumulative == FALSE) {
-    mean_incidences <- posterior_df %>% select(contains("incidence")) %>% 
-      colMeans()
-    
-    names_mi <- names(mean_incidences)
-    
-    sim_data <- map_df(age_groups, function(ag) {
-      i <- which(ag == age_groups)
-      regex <- stringr::regex(paste0("incidence", i, "\\["))
-      data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
-                 variable = ag)
-    }) %>% mutate(source = "sim data")
+    sim_data <- extract_mean_incidences(posterior_df, stochastic)
   }
   
   if(cumulative == TRUE) {
@@ -61,10 +54,10 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
       
       incidence_sim <- tbl_colmeans %>% group_by(time) %>% 
         summarise(ever_infected = sum(value)) %>% ungroup() %>% 
-        mutate(time = as.numeric(time), variable = ag)   %>% 
+        mutate(time = as.numeric(time), age_group = ag)   %>% 
         bind_rows(data.frame(stringsAsFactors = FALSE, 
                              time = 0, ever_infected = init_vals[i], 
-                             variable = ag)) %>% arrange(time) %>% 
+                             age_group = ag)) %>% arrange(time) %>% 
         mutate(value = ever_infected - lag(ever_infected, 
                                            default = ever_infected[1])) %>% 
         slice(-1) %>% mutate(value = round(value, 0)) %>% 
@@ -74,21 +67,25 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
   
   
   real_data <- incidence_df %>% rename(value = incidence) %>% 
-    mutate(source = "syn data") %>% left_join(translation_df, by = "index_group")
+    mutate(source = "syn data") 
+  
+  if(!"age_group" %in% names(real_data)) {
+    real_data <- left_join(real_data, translation_df, by = "index_group")
+  }
   
   comparison_data <- bind_rows(sim_data, real_data)
   
   g_comparison <- ggplot(comparison_data, aes(x = time, y = value)) +
     geom_line(aes(group = source, colour = source)) +
     scale_colour_manual(values = c("lightgrey", "blue")) +
-    facet_wrap(~variable) +
+    facet_wrap(~ age_group) +
     theme_test()
   
   #=============================================================================
   
   MSE_per_ag <- map_dbl(age_groups, function(ag, comparison_data) {
     
-    ag_data  <- comparison_data %>% filter(variable == ag)
+    ag_data  <- comparison_data %>% filter(age_group == ag)
     syn_data <- ag_data %>% filter(source == "syn data") %>% pull(value)
     sim_data <- ag_data %>% filter(source == "sim data") %>% pull(value)
     MSE(sim_data, syn_data)
@@ -118,4 +115,26 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
        lower_bound  = credible_interval[[1]],
        upper_bound  = credible_interval[[2]],
        MSE = sum(MSE_per_ag))
+}
+
+extract_mean_incidences <- function(posterior_df, stochastic = FALSE) {
+  age_groups <- c("00-04", "05-14", "15-44", "45+")
+  
+  incidences      <- posterior_df %>% select(contains("incidence"))
+  
+  if(stochastic) {
+    p_values   <- posterior_df %>% pull(p)
+    incidences <- incidences * p_values 
+  }
+  
+  mean_incidences <- colMeans(incidences)
+  
+  names_mi <- names(mean_incidences)
+  
+  sim_data <- map_df(age_groups, function(ag) {
+    i <- which(ag == age_groups)
+    regex <- stringr::regex(paste0("incidence", i, "\\["))
+    data.frame(time = 1:50, value = mean_incidences[grepl(regex, names_mi)], 
+               age_group = ag, stringsAsFactors = F)
+  }) %>% mutate(source = "sim data")
 }
