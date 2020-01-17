@@ -86,7 +86,7 @@ summarise_optim_fit <- function(
     conceptual_matrix, function(Bij, row) row[[Bij]], row = optim_fit$fit$par) %>%
     matrix(nrow = 4, byrow = T)
   
-  age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+  age_groups <- c("00-04", "05-14", "15-44", "45+")
   colnames(WAIFW_estimates) <- rownames(WAIFW_estimates) <- age_groups
   
   MSE_WAIFW <- MSE(as.vector(WAIFW_estimates), actual_WAIFW)

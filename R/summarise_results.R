@@ -3,7 +3,7 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
                               stochastic = FALSE) {
   source("./graphs.R")
   
-  age_groups <- c("Age.0.4", "Age.5.14", "Age.15.44", "Age.45.over")
+  age_groups <- c("00-04", "05-14", "15-44", "45+")
   
   posterior_df <- as.data.frame(fit)
   
@@ -19,12 +19,12 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
   normalised_WAIFW           <- WAIFW_medians
   colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
   
-  g_WAIFW <- draw_WAIFW(normalised_WAIFW, "title")
+  g_WAIFW <- draw_WAIFW(normalised_WAIFW, "")
   
   #=============================================================================
   age_groups <- c("00-04", "05-14", "15-44", "45+")
   translation_df <- data.frame(index_group = 1:4, 
-                               age_group = c("00-04", "5-14", "15-44", "45+"))
+                               age_group = c("00-04", "05-14", "15-44", "45+"))
   
   if(cumulative == FALSE) {
     sim_data <- extract_mean_incidences(posterior_df, stochastic)
@@ -82,7 +82,6 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
     theme_test()
   
   #=============================================================================
-  
   MSE_per_ag <- map_dbl(age_groups, function(ag, comparison_data) {
     
     ag_data  <- comparison_data %>% filter(age_group == ag)

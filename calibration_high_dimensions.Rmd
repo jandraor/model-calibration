@@ -56,6 +56,9 @@ output_sp$g_M_matrix
 ```{r g_synWAIFW, fig.height = 2.5, fig.width = 3, fig.align= "center"}
 output_sp$g_syn_WAIFW
 actual_WAIFW <- as.vector(output_sp$synthetic_WAIFW) * 1e5
+grey_actual_WAIFW <- output_sp$g_syn_WAIFW +
+  scale_fill_gradient(low = "#D3D3D3", high = "#696969") +
+  labs(title = "Actual WAIFW")
 ```
 
 ## 1.2 Synthetic incidence from 4-cohort SEIR
@@ -130,7 +133,7 @@ ggplot(inc_df, aes(x = time, y = incidence)) +
 ## 2.1 Matrix structures
 
 ```{r}
-age_groups <- c("0-4", "5-14", "15-64", "65+")
+age_groups <- c("00-04", "05-14", "15-44", "45+")
 matrices   <- c("Symmetric", paste0("Matrix ", LETTERS[1:4]))
 
 # Symmetrical matrix
@@ -194,20 +197,19 @@ g_cm <- map2(cm_list, titles, function(cm, gtitle) {
 
 
 g_matrices <- grid.arrange(g_cm[[1]], g_cm[[2]], g_cm[[3]], g_cm[[4]], g_cm[[5]], ncol = 2)
-print(g_matrices)
 
 ggsave("./plots/g_matrices.png", dpi = "print", height = 5, width = 5, 
        plot = g_matrices)
 ```
 
+\newpage
 
-## 2.2 Through Stan
+## 2.2 Deterministic data
+
+## 2.2.1 Through Stan
 
 
 ### 2.2.1 Symmetric matrix
-
-
-#### 2.2.1.1 Deterministic data
 
 
 
@@ -237,81 +239,30 @@ stan_fit_sym <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
                    iter   = 2000, cores  = 3, seed = 936357172, refresh = 5)
 ```
 
-```{r}
+```{r, fig.height = 2.5, fig.width = 5.5, fig.align = 'center'}
 source("./R/summarise_results.R")
 
-specs_list <- list(x_pos = 2.28, ypos_mean = 14, ypos_median = 13.5, 
-                   text_size = 2, ypos_interval = 13, 
+specs_list <- list(x_pos = 2.29, ypos_mean = 30, ypos_median = 26, 
+                   text_size = 2, ypos_interval = 22, 
                    title = "Symmetric matrix", xlabel = "")
 
 summary_2.1 <- summarise_results(stan_fit_sym, conceptual_matrix_sym, 
                         output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
                         specs_list, o_SEIR_sym$params)
-summary_2.1$g_WAIFW
+
+grid.arrange(summary_2.1$g_WAIFW, grey_actual_WAIFW, ncol = 2)
+
 ```
 
-```{r g_comparison_SIR_dis_2_days}
+```{r g_comparison_SIR_dis_2_days, fig.height = 2.5, fig.align = 'center'}
 summary_2.1$g_comparison
 ```
 
-```{r}
+```{r, fig.height = 2.5, fig.width = 4, fig.align= 'center'}
 summary_2.1$g_rNougths
 ```
 
-#### 2.2.1.2 Stochastic data
-
-```{r stan_stc_sym, cache = T}
-source("./R/write_SEIR_stc_model.R")
-
-filename     <- "SEIR_sym_stc.stan"
-params_prior <- "  params ~ normal(0, 100);"
-o_SEIR_sym   <- write_SEIR_stc_model("sym", filename, output_gsi$stocks, params_prior)
-
-stan_d <- list(n_obs    = length_data,
-              n_params = length(unique(conceptual_matrix_sym)), 
-              n_difeq  = 16, # number of differential equations
-              y1       = stc_data[[1]],
-              y2       = stc_data[[2]],
-              y3       = stc_data[[3]],
-              y4       = stc_data[[4]],
-              t0       = 0,
-              ts       = 1:length_data)
-
-# Test / debug the model:
-test <- stan(filename, data = stan_d, chains = 1, iter = 10,
-               verbose = FALSE, refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit_stc_sym <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                   iter   = 2000, cores  = 3, seed = 1900039050, refresh = 5)
-
-#pairs(stan_fit_stc_sym, pars = c("params[1]", "params[2]", "params[3]", "params[4]", "params[5]", "params[6]", "params[7]", "params[8]", "params[9]", "params[10]") )
-```
-
-```{r}
-source("./R/summarise_results.R")
-
-specs_list <- list(x_pos = 2.30, ypos_mean = 20, ypos_median = 17, 
-                   text_size = 2, ypos_interval = 14, 
-                   title = "Symmetric matrix", xlabel = "")
-
-summary_stc_sym <- summarise_results(stan_fit_stc_sym, conceptual_matrix_sym, 
-                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
-                        specs_list, o_SEIR_sym$params)
-summary_stc_sym$g_WAIFW
-```
-
-```{r}
-summary_stc_sym$g_comparison
-```
-
-```{r}
-summary_stc_sym$g_rNougths
-```
-
 ## 2.2.2 Matrix A
-
-### 2.2.2.1 Deterministic
 
 ```{r stan_fit_A, cache = TRUE}
 source("./R/write_SEIR_model.R")
@@ -359,55 +310,6 @@ summary_2.2$g_comparison
 
 ```{r}
 summary_2.2$g_rNougths
-```
-
-#### 2.2.2.2 Stochastic
-
-```{r stan_stc_A, cache = T}
-source("./R/write_SEIR_stc_model.R")
-
-filename     <- "SEIR_stc_A_.stan"
-params_prior <- "  params ~ normal(0, 100);"
-o_SEIR_A   <- write_SEIR_stc_model("A", filename, output_gsi$stocks, params_prior)
-
-stan_d <- list(n_obs    = length_data,
-              n_params = length(unique(conceptual_matrix_A)), 
-              n_difeq  = 16, # number of differential equations
-              y1       = stc_data[[1]],
-              y2       = stc_data[[2]],
-              y3       = stc_data[[3]],
-              y4       = stc_data[[4]],
-              t0       = 0,
-              ts       = 1:length_data)
-
-# Test / debug the model:
-test <- stan(filename, data = stan_d, chains = 1, iter = 10,
-               verbose = FALSE, refresh = 0)
-
-# Fit and sample from the posterior
-stan_fit_stc_A <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
-                   iter   = 2000, cores  = 3, seed = 571156516, refresh = 5)
-```
-
-```{r}
-source("./R/summarise_results.R")
-
-specs_list <- list(x_pos = 2.30, ypos_mean = 20, ypos_median = 17, 
-                   text_size = 2, ypos_interval = 14, 
-                   title = "Matrix A", xlabel = "")
-
-summary_stc_A <- summarise_results(stan_fit_stc_A, conceptual_matrix_A, 
-                        stc_df, output_sp$syn_pop$syn_pop,
-                        specs_list, o_SEIR_A$params, stochastic = TRUE)
-summary_stc_A$g_WAIFW
-```
-
-```{r}
-summary_stc_A$g_comparison
-```
-
-```{r}
-summary_stc_A$g_rNougths
 ```
 
 ### 2.2.3 Matrix B
@@ -706,28 +608,28 @@ R_estimations_stan <- data.frame(matrix = matrices,
                             method = "Hamiltonian Monte Carlo",
                             model  = "Deterministic")
 
-R_estimations_stan_stc <- data.frame(
-  matrix = matrices,
-  R0 = c(
-    summary_stc_sym$mean_rNought,
-    summary_stc_A$mean_rNought,
-    summary_stc_B$mean_rNought,
-    summary_stc_C$mean_rNought,
-    summary_stc_D$mean_rNought),
-  lower.bound = c(
-    summary_stc_sym$lower_bound,
-    summary_stc_A$lower_bound,
-    summary_stc_B$lower_bound,
-    summary_stc_C$lower_bound,
-    summary_stc_D$lower_bound),
-  upper.bound = c(
-    summary_stc_sym$upper_bound,
-    summary_stc_A$upper_bound,
-    summary_stc_B$upper_bound,
-    summary_stc_C$upper_bound,
-    summary_stc_D$upper_bound),
-  method = "Hamiltonian Monte Carlo",
-  model  = "Stochastic")
+# R_estimations_stan_stc <- data.frame(
+#   matrix = matrices,
+#   R0 = c(
+#     summary_stc_sym$mean_rNought,
+#     summary_stc_A$mean_rNought,
+#     summary_stc_B$mean_rNought,
+#     summary_stc_C$mean_rNought,
+#     summary_stc_D$mean_rNought),
+#   lower.bound = c(
+#     summary_stc_sym$lower_bound,
+#     summary_stc_A$lower_bound,
+#     summary_stc_B$lower_bound,
+#     summary_stc_C$lower_bound,
+#     summary_stc_D$lower_bound),
+#   upper.bound = c(
+#     summary_stc_sym$upper_bound,
+#     summary_stc_A$upper_bound,
+#     summary_stc_B$upper_bound,
+#     summary_stc_C$upper_bound,
+#     summary_stc_D$upper_bound),
+#   method = "Hamiltonian Monte Carlo",
+#   model  = "Stochastic")
 ```
 
 ```{r MSE_timeseries_stan}
@@ -740,23 +642,22 @@ MSE_ts_stan <- data.frame(matrix = matrices,
                               summary_2.4$MSE,
                               summary_2.5$MSE),
                             method = "Hamiltonian Monte Carlo",
-                          model = "deterministic")
+                          model = "deterministic") %>% 
+  mutate(is_min = ifelse(MSE == min(MSE), TRUE, FALSE))
 
-MSE_ts_stan_stc <- data.frame(
-  matrix = matrices,
-  MSE = c(
-    summary_stc_sym$MSE,
-    summary_stc_A$MSE,
-    summary_stc_B$MSE,
-    summary_stc_C$MSE,
-    summary_stc_D$MSE),
-  method = "Hamiltonian Monte Carlo",
-  model  = "stochastic")
+# MSE_ts_stan_stc <- data.frame(
+#   matrix = matrices,
+#   MSE = c(
+#     summary_stc_sym$MSE,
+#     summary_stc_A$MSE,
+#     summary_stc_B$MSE,
+#     summary_stc_C$MSE,
+#     summary_stc_D$MSE),
+#   method = "Hamiltonian Monte Carlo",
+#   model  = "stochastic")
 ```
 
-## 2.3 By optimisation
-
-### 2.3.1 Deterministic data
+## 2.2.3 By optimisation
 
 ```{r optim_deterministic, cache = T}
 # source("./R/optimise_SEIR.R")
@@ -808,7 +709,7 @@ MSE_ts_stan_stc <- data.frame(
 ```
 
 
-#### 2.3.1.1 Symmetric matrix
+#### 2.2.3.1 Symmetric matrix
 
 
 
@@ -891,7 +792,7 @@ g_MSEs <- ggplot(MSEs_df, aes(x = as.factor(init), y = MSE)) +
 print(g_MSEs)
 ```
 
-#### 2.3.1.2 Matrix A
+#### 2.2.3.2 Matrix A
 
 
 ```{r optim_A, cache = TRUE}
@@ -972,7 +873,7 @@ g_MSEs <- ggplot(MSEs_df, aes(x = as.factor(init), y = MSE)) +
 print(g_MSEs)
 ```
 
-#### 2.3.1.3 Matrix B
+#### 2.2.3.3 Matrix B
 
 ```{r optim_B, cache = TRUE}
 source("./R/optimise_SEIR.R")
@@ -1052,7 +953,7 @@ g_MSEs <- ggplot(MSEs_df, aes(x = as.factor(init), y = MSE)) +
 print(g_MSEs)
 ```
 
-#### 2.3.1.4 Matrix C
+#### 2.2.3.4 Matrix C
 
 ```{r optim_C, cache = TRUE}
 source("./R/optimise_SEIR.R")
@@ -1132,7 +1033,7 @@ g_MSEs <- ggplot(MSEs_df, aes(x = as.factor(init), y = MSE)) +
 print(g_MSEs)
 ```
 
-#### 2.3.1.5 Matrix D
+#### 2.2.3.5 Matrix D
 
 ```{r optim_D, cache = TRUE}
 source("./R/optimise_SEIR.R")
@@ -1211,6 +1112,152 @@ g_MSEs <- ggplot(MSEs_df, aes(x = as.factor(init), y = MSE)) +
 
 print(g_MSEs)
 ```
+
+### 2.2.4 Incidence goodness of fit
+
+```{r MSE_timeseries_optim}
+MSE_ts_optim <- data.frame(matrix = matrices,
+                            MSE = c(
+                              summary_optim_sym$MSE,
+                              summary_optim_A$MSE,
+                              summary_optim_B$MSE,
+                              summary_optim_C$MSE,
+                              summary_optim_D$MSE),
+                            method = "MLE",
+                           model = "deterministic") %>% 
+  mutate(is_min = ifelse(MSE == min(MSE), TRUE, FALSE))
+
+
+
+# MSE_ts_optim_stc <- data.frame(
+#   matrix = matrices,
+#   MSE = c(
+#     summary_optim_stc_sym$MSE,
+#     summary_optim_stc_A$MSE,
+#     summary_optim_stc_B$MSE,
+#     summary_optim_stc_C$MSE,
+#     summary_optim_stc_D$MSE),
+#   method = "MLE",
+#   model = "stochastic")
+```
+
+
+
+```{r, fig.height = 3}
+MSE_ts <- bind_rows(MSE_ts_optim, MSE_ts_stan)
+
+ggplot(MSE_ts, aes(x = matrix, y = MSE)) +
+  geom_lollipop(aes(colour = is_min)) +
+  scale_colour_manual(values = c("grey", "steelblue")) +
+  coord_flip() +
+  geom_text(aes(label = round(MSE, 0)), nudge_y = 50, size = 3) +
+  facet_wrap(~ method) +
+  theme_test() +
+  theme(legend.position = "none")
+```
+
+## 2.3 Stochastic data
+
+### 2.3.1 By STAN
+
+#### 2.3.1.1 Symmetric matrix
+
+```{r stan_stc_sym, cache = T}
+source("./R/write_SEIR_stc_model.R")
+
+filename     <- "SEIR_sym_stc.stan"
+params_prior <- "  params ~ normal(0, 100);"
+o_SEIR_sym   <- write_SEIR_stc_model("sym", filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(unique(conceptual_matrix_sym)), 
+              n_difeq  = 16, # number of differential equations
+              y1       = stc_data[[1]],
+              y2       = stc_data[[2]],
+              y3       = stc_data[[3]],
+              y4       = stc_data[[4]],
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_stc_sym <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 1900039050, refresh = 5)
+```
+
+```{r}
+source("./R/summarise_results.R")
+
+specs_list <- list(x_pos = 2.30, ypos_mean = 20, ypos_median = 17, 
+                   text_size = 2, ypos_interval = 14, 
+                   title = "Symmetric matrix", xlabel = "")
+
+summary_stc_sym <- summarise_results(stan_fit_stc_sym, conceptual_matrix_sym, 
+                        output_gsi$incidence_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_sym$params)
+summary_stc_sym$g_WAIFW
+```
+
+```{r}
+summary_stc_sym$g_comparison
+```
+
+```{r}
+summary_stc_sym$g_rNougths
+```
+
+#### 2.3.1.2 Matrix A
+
+```{r stan_stc_A, cache = T}
+source("./R/write_SEIR_stc_model.R")
+
+filename     <- "SEIR_stc_A_.stan"
+params_prior <- "  params ~ normal(0, 100);"
+o_SEIR_A   <- write_SEIR_stc_model("A", filename, output_gsi$stocks, params_prior)
+
+stan_d <- list(n_obs    = length_data,
+              n_params = length(unique(conceptual_matrix_A)), 
+              n_difeq  = 16, # number of differential equations
+              y1       = stc_data[[1]],
+              y2       = stc_data[[2]],
+              y3       = stc_data[[3]],
+              y4       = stc_data[[4]],
+              t0       = 0,
+              ts       = 1:length_data)
+
+# Test / debug the model:
+test <- stan(filename, data = stan_d, chains = 1, iter = 10,
+               verbose = FALSE, refresh = 0)
+
+# Fit and sample from the posterior
+stan_fit_stc_A <- stan(fit = test, data = stan_d, chains = 3, warmup = 1000,
+                   iter   = 2000, cores  = 3, seed = 571156516, refresh = 5)
+```
+
+```{r}
+source("./R/summarise_results.R")
+
+specs_list <- list(x_pos = 2.30, ypos_mean = 20, ypos_median = 17, 
+                   text_size = 2, ypos_interval = 14, 
+                   title = "Matrix A", xlabel = "")
+
+summary_stc_A <- summarise_results(stan_fit_stc_A, conceptual_matrix_A, 
+                        stc_df, output_sp$syn_pop$syn_pop,
+                        specs_list, o_SEIR_A$params, stochastic = TRUE)
+summary_stc_A$g_WAIFW
+```
+
+```{r}
+summary_stc_A$g_comparison
+```
+
+```{r}
+summary_stc_A$g_rNougths
+```
+
 
 #### 2.3.1.2 Stochastic
 
@@ -1375,41 +1422,6 @@ R_estimations_optim_stc <- data.frame(
     summary_optim_stc_D$R_nought),
   method = "MLE",
   model = "stochastic")
-```
-
-```{r MSE_timeseries_optim}
-MSE_ts_optim <- data.frame(matrix = matrices,
-                            MSE = c(
-                              summary_optim_sym$MSE,
-                              summary_optim_A$MSE,
-                              summary_optim_B$MSE,
-                              summary_optim_C$MSE,
-                              summary_optim_D$MSE),
-                            method = "MLE",
-                           model = "deterministic")
-
-MSE_ts_optim_stc <- data.frame(
-  matrix = matrices,
-  MSE = c(
-    summary_optim_stc_sym$MSE,
-    summary_optim_stc_A$MSE,
-    summary_optim_stc_B$MSE,
-    summary_optim_stc_C$MSE,
-    summary_optim_stc_D$MSE),
-  method = "MLE",
-  model = "stochastic")
-```
-
-## 2.4 Incidence goodness of fit
-
-```{r}
-MSE_ts <- bind_rows(MSE_ts_optim, MSE_ts_stan)
-
-ggplot(MSE_ts, aes(x = matrix, y = MSE)) +
-  geom_lollipop() +
-  coord_flip() +
-  geom_text(aes(label = round(MSE, 0)), nudge_y = 50, size = 3) +
-  facet_wrap(~ method)
 ```
 
 
