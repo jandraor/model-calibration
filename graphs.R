@@ -112,12 +112,16 @@ draw_density <- function(data_vector, g_params) {
     labs(x = g_params$xlabel, title = g_params$title)
 }
 
-draw_WAIFW <- function(WAIFW, subtitle) {
+draw_WAIFW <- function(WAIFW, subtitle, interval_df = NULL) {
   library(reshape2)
 
   WAIFW_df <- WAIFW %>% t() %>% melt()
   
-  ggplot(data = WAIFW_df, aes(x = Var1, 
+  if(!is.null(interval_df)) {
+    WAIFW_df <- bind_cols(WAIFW_df, interval_df)
+  }
+  
+  g <- ggplot(data = WAIFW_df, aes(x = Var1, 
                               y = ordered(Var2, levels = rev(sort(unique(Var2)))), 
                               fill = value)) + 
     geom_tile() +
@@ -129,4 +133,12 @@ draw_WAIFW <- function(WAIFW, subtitle) {
           plot.subtitle = element_text(color = "#404040", size = 8),
           axis.text.x = element_text(size = 6),
           axis.text.y = element_text(size = 6))
+  
+  if(!is.null(interval_df)) {
+    g <- g + geom_text(
+      aes(label = paste("[", lower.interval," ,", upper.interval, "]")),
+      nudge_y = -0.2, size = 1.5, colour = "white")
+  }
+  
+  g
 }

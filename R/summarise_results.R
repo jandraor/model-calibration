@@ -12,6 +12,7 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
   colnames(param_samples) <- unique_params
   param_medians           <- apply(param_samples, 2, function(col) median(col))
   
+  
   WAIFW_medians <- sapply(
     conceptual_matrix, function(Bij, row) row[[Bij]], row = param_medians) %>%
     matrix(nrow = 4, byrow = T)
@@ -19,7 +20,18 @@ summarise_results <- function(fit, conceptual_matrix, incidence_df, pop_sizes,
   normalised_WAIFW           <- WAIFW_medians
   colnames(normalised_WAIFW) <- rownames(normalised_WAIFW) <- age_groups
   
-  g_WAIFW <- draw_WAIFW(normalised_WAIFW, "")
+  
+  interval_df <- map_df(conceptual_matrix, function(Bij, param_samples) {
+   
+    vals              <- param_samples[, Bij]
+    credible_interval <- rethinking::HPDI(vals, 0.95)
+    
+    data.frame(lower.interval = round(credible_interval[1], 0), 
+               upper.interval = round(credible_interval[2],0 ))
+   
+  }, param_samples = param_samples)
+  
+  g_WAIFW <- draw_WAIFW(normalised_WAIFW, "", interval_df)
   
   #=============================================================================
   age_groups <- c("00-04", "05-14", "15-44", "45+")
